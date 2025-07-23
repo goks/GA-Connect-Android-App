@@ -20,10 +20,11 @@ class Repository(
      * Sync Firestore → Room and download images **only if they are not already cached**.
      */
     suspend fun sync(context: Context) {
+        Log.d("Repository", "Fetching from Firestore")
         val items = firestore
             .collection("items")
-//            .limit(500)
-            .get()
+            .limit(500)
+            .   get()
             .await()
             .documents
             .mapNotNull { doc ->
@@ -47,14 +48,21 @@ class Repository(
                     null
                 }
             }
+        Log.d("Repository", "Fetched ${items.size} items")
 
         dao.clearAll()
         dao.insertAll(items)
 
         val imageDir = File(context.filesDir, "images").apply { mkdirs() }
         // Images are fetched lazily per item card
+
+
+
     }
 
+    fun getLastServerUpdateTimestamp(): Long {
+        return System.currentTimeMillis() // Replace with Firestore field if you're storing that
+    }
     suspend fun getAll(): List<ItemEntity> = dao.getAllItems()
 
     suspend fun search(rawQuery: String): List<ItemEntity> {

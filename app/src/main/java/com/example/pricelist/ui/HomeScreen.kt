@@ -1,6 +1,10 @@
 package com.example.pricelist.ui
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.os.Environment
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -11,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,91 +32,171 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.compose.rememberAsyncImagePainter
 import com.example.pricelist.data.ItemEntity
+import com.example.pricelist.util.AppPrefs
 import com.example.pricelist.viewmodel.ItemViewModel
 import com.example.pricelist.viewmodel.ItemViewModelFactory
 import com.google.firebase.auth.FirebaseAuth
-import java.io.File
 import com.google.firebase.ktx.Firebase
+import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.ktx.storage
 import kotlinx.coroutines.tasks.await
+import java.io.File
 
+const val ROUTE_BROCHURES = "brochures"
 
+@SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(navController: NavController) {
-    var syncing by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val viewModel: ItemViewModel = viewModel(factory = ItemViewModelFactory(context))
     val items by viewModel.itemsFlow.collectAsState()
     val query by viewModel.query.collectAsState()
     val user = FirebaseAuth.getInstance().currentUser
-
     var selectedItem by remember { mutableStateOf<ItemEntity?>(null) }
+    var showMenu by remember { mutableStateOf(false) }
+    val firstSyncDone = remember { mutableStateOf(AppPrefs.isFirstSyncDone(context)) }
+    val lastSync = remember { AppPrefs.getLastSyncTime(context) }
+    var syncing by remember { mutableStateOf(false) }
+    var showUpdatePrompt by remember { mutableStateOf(false) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "Welcome, ${user?.displayName ?: "Guest"}",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
-        )
-
-        OutlinedTextField(
-            value = query,
-            onValueChange = { viewModel.onSearchChanged(it) },   // keep spaces
-            label = { Text("Search items…") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-
-        if (syncing) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            Spacer(Modifier.height(8.dp))
+    LaunchedEffect(Unit) {
+        if (firstSyncDone.value) {
+            val serverUpdatedAt = viewModel.getLastServerUpdateTimestamp()
+            if (serverUpdatedAt > lastSync) {
+                showUpdatePrompt = true
+            }
         }
-        Button(
-            onClick = {
-                syncing = true
-                viewModel.syncNow(context) {
-                    syncing = false
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text("Welcome, ${user?.displayName ?: "Guest"}")
+                },
+                actions = {
+                    IconButton(onClick = { showMenu = !showMenu }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                    }
+
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Download Brochures") },
+                            onClick = {
+                                showMenu = false
+                                navController.navigate(ROUTE_BROCHURES)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Sign out") },
+                            onClick = {
+                                FirebaseAuth.getInstance().signOut()
+                                navController.navigate("login") {
+                                    popUpTo("home") { inclusive = true }
+                                }
+                            }
+                        )
+                    }
                 }
-            },
-            enabled = !syncing,
-            shape = RoundedCornerShape(8.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-        ) {
-            Text("Sync from Firestore")
+            )
         }
-        Spacer(Modifier.height(8.dp))
-
+    ) {  innerPadding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(items) { item ->
-                ItemCard(item) { selectedItem = it }
+//            contentPadding = innerPadding, // ✅ fixes shape/cutoff issues
+        modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 16.dp, vertical = 8.dp), // consistent horizontal padding,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+            item {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { viewModel.onSearchChanged(it) },
+                    label = { Text("Search items…") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        item {
+            val isSearching = query.isNotBlank()
+
+            if (!firstSyncDone.value &&  !isSearching && items.isEmpty()) {
+                if (syncing) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                } else {
+                    Button(
+                        onClick = {
+                            syncing = true
+                            viewModel.syncNow(context) {
+                                AppPrefs.setFirstSyncDone(context, true)
+                                AppPrefs.setLastSyncTime(context, System.currentTimeMillis())
+                                syncing = false
+                                firstSyncDone.value = true // ✅ mark sync done
+                            }
+                        },
+                        enabled = !syncing,
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Text("Sync from Firestore")
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+            } else if (showUpdatePrompt) {
+                OutlinedButton(
+                    onClick = {
+                        syncing = true
+                        viewModel.syncNow(context) {
+                            syncing = false
+                            showUpdatePrompt = false
+                        }
+                    },
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("New update available – Sync now?")
+                }
+            }
+
+
+        }
+
+        items(items) { item ->
+            ItemCard(item) { selectedItem = it }
+        }
+            if (items.isEmpty() && query.isNotBlank()) {
+                item {
+                    Text(
+                        text = "No items found.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 24.dp)
+                    )
+                }
+            }    }
+
+
+    }
+
+        selectedItem?.let { item ->
+            val imageFile = File(context.filesDir, "images/${item.MasterCode}${item.imageExt}")
+            if (item.imageYes && imageFile.exists()) {
+                ImageZoomDialog(
+                    file = imageFile,
+                    itemName = item.Name,
+                    imageW = item.imageW,
+                    imageH = item.imageH
+                ) {
+                    selectedItem = null
+                }
             }
         }
     }
 
-    selectedItem?.let { item ->
-        val imageFile = File(context.filesDir, "images/${item.MasterCode}${item.imageExt}")
-        if (item.imageYes && imageFile.exists()) {
-            ImageZoomDialog(
-                file = imageFile,
-                itemName = item.Name,
-                imageW = item.imageW,
-                imageH = item.imageH
-            ) {
-                selectedItem = null
-            }
-        }
-    }
-}
 
+// -----------------------------
+// 🔻 Reusable Composables
+// -----------------------------
 @Composable
 fun ItemCard(item: ItemEntity, onImageClick: (ItemEntity) -> Unit) {
     val context = LocalContext.current
@@ -165,7 +250,6 @@ fun ItemCard(item: ItemEntity, onImageClick: (ItemEntity) -> Unit) {
                                 .clickable { onImageClick(item) }
                         )
                     } else {
-                        // Placeholder or loading spinner
                         if (isLoading) {
                             CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                         } else {
@@ -192,7 +276,6 @@ fun ItemCard(item: ItemEntity, onImageClick: (ItemEntity) -> Unit) {
         }
     }
 }
-
 
 @Composable
 fun DiscountBadge(percent: Double) {
@@ -273,3 +356,30 @@ fun ImageZoomDialog(
         }
     )
 }
+
+// 🔻 Firebase brochure listing and download
+fun loadBrochures(onComplete: (List<String>) -> Unit) {
+    FirebaseStorage.getInstance().reference.child("brochures/")
+        .listAll()
+        .addOnSuccessListener { list ->
+            val names = list.items.map { it.name }
+            onComplete(names)
+        }
+        .addOnFailureListener { onComplete(emptyList()) }
+}
+
+fun downloadPdf(filename: String, context: Context, onComplete: () -> Unit) {
+    val storageRef = FirebaseStorage.getInstance().reference.child("brochures/$filename")
+    val localFile = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), filename)
+
+    storageRef.getFile(localFile)
+        .addOnSuccessListener {
+            Toast.makeText(context, "Downloaded to: ${localFile.path}", Toast.LENGTH_LONG).show()
+            onComplete()
+        }
+        .addOnFailureListener {
+            Toast.makeText(context, "Download failed: ${it.message}", Toast.LENGTH_LONG).show()
+            onComplete()
+        }
+}
+

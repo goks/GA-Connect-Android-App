@@ -1,12 +1,16 @@
 package com.example.pricelist.viewmodel
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.pricelist.data.ItemEntity
 import com.example.pricelist.data.Repository
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 class ItemViewModel(private val repo: Repository) : ViewModel() {
 
@@ -33,16 +37,40 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
     /* ---------------------------------------------------- */
     /* 🔄  Manual sync (Firestore ➜ Room)                    */
     /* ---------------------------------------------------- */
-    fun syncNow(context: Context, onComplete: () -> Unit) {
+    fun syncNow(
+        context: Context,
+        onComplete: (success: Boolean) -> Unit
+    ) {
         viewModelScope.launch {
+            val prefs = context.getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
+            var ok = false
+
             try {
-                repo.sync(context)
-                _itemsFlow.value = repo.getAll()
+                withTimeout(15_000L) {
+                    repo.sync(context)
+                    _itemsFlow.value = repo.getAll()
+                    ok = true
+
+                    // ✅ Save sync flag and timestamp
+                    prefs.edit()
+                        .putBoolean("hasSyncedOnce", true)
+                        .putLong("lastSyncedTime", System.currentTimeMillis())
+                        .apply()
+                }
+            } catch (t: TimeoutCancellationException) {
+                Log.e("SyncNow", "Sync timed‑out (15 s)")
+            } catch (e: Exception) {
+                Log.e("SyncNow", "Sync error", e)
             } finally {
-                onComplete()
+                onComplete(ok)
             }
         }
     }
+    // In ItemViewModel.kt
+    suspend fun getLastServerUpdateTimestamp(): Long {
+        return repo.getLastServerUpdateTimestamp()
+    }
+
 
 
     /* ---------------------------------------------------- */
