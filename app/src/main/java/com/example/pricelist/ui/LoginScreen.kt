@@ -114,7 +114,7 @@ fun LoginScreen(navController: NavController) {
         ) {
             // 🖼 Logo
             Image(
-                painter = painterResource(id = R.drawable.ga_logo),
+                painter = painterResource(id = R.drawable.ga_logo_old),
                 contentDescription = "Gokul Agencies Logo",
                 modifier = Modifier
                     .height(140.dp)

@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import androidx.core.content.edit
 
 class ItemViewModel(private val repo: Repository) : ViewModel() {
 
@@ -52,10 +53,10 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
                     ok = true
 
                     // ✅ Save sync flag and timestamp
-                    prefs.edit()
-                        .putBoolean("hasSyncedOnce", true)
-                        .putLong("lastSyncedTime", System.currentTimeMillis())
-                        .apply()
+                    prefs.edit {
+                        putBoolean("hasSyncedOnce", true)
+                            .putLong("lastSyncedTime", System.currentTimeMillis())
+                    }
                 }
             } catch (t: TimeoutCancellationException) {
                 Log.e("SyncNow", "Sync timed‑out (15 s)")
@@ -80,6 +81,25 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
         viewModelScope.launch {
             _query.value = text
             _itemsFlow.value = repo.search(text)
+        }
+    }
+
+    fun checkIfUpdateAvailable(context: Context, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val localLastSync = context
+                    .getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
+                    .getLong("lastSyncedTime", 0L)
+
+                val remoteLastUpdate = repo.getLastServerUpdateTimestamp()
+
+                Log.d("UpdateCheck", "Local: $localLastSync → Remote: $remoteLastUpdate")
+
+                onResult(remoteLastUpdate > localLastSync)
+            } catch (e: Exception) {
+                Log.e("UpdateCheck", "Failed to check updates", e)
+                onResult(false) // fallback: assume no update
+            }
         }
     }
 

@@ -15,5 +15,8 @@ interface ItemDao {
 
     @Query("SELECT items.* FROM items JOIN itemsFts ON items.rowid = itemsFts.rowid WHERE itemsFts MATCH :query")
     suspend fun searchItems(query: String): List<ItemEntity>
+
+    @Query("SELECT * FROM items WHERE Code = :code")
+    suspend fun getItemByCode(code: String): ItemEntity?
 }
 

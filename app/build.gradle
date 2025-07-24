@@ -16,7 +16,22 @@ android {
         versionCode 1
         versionName "1.0"
     }
+    signingConfigs {
+        release {
+            storeFile file("my-release-key.jks")
+            storePassword "your-store-password"
+            keyAlias "your-key-alias"
+            keyPassword "your-key-password"
+        }
+    }
 
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            signingConfig signingConfigs.release
+        }
+    }
     buildFeatures {
         compose true
     }
@@ -48,6 +63,7 @@ dependencies {
     implementation "androidx.compose.material:material-icons-extended"
     implementation 'androidx.compose.material3:material3'
 
+    implementation "androidx.core:core-splashscreen:1.0.1"
 
     // Firebase
     implementation platform('com.google.firebase:firebase-bom:33.2.0')

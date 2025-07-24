@@ -2,6 +2,7 @@ package com.example.pricelist.data
 
 import android.content.Context
 import android.util.Log
+import com.example.pricelist.util.AppPrefs
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage
@@ -20,49 +21,86 @@ class Repository(
      * Sync Firestore → Room and download images **only if they are not already cached**.
      */
     suspend fun sync(context: Context) {
-        Log.d("Repository", "Fetching from Firestore")
+        val lastSync = AppPrefs.getLastSyncTime(context)
+        val imageDir = File(context.filesDir, "images").apply { mkdirs() }
+
+
+        Log.d("Repository", "Delta sync since: $lastSync")
         val items = firestore
             .collection("items")
-            .limit(500)
-            .   get()
+            .whereGreaterThan("lastFBUpdate", com.google.firebase.Timestamp(lastSync / 1000, 0))
+            .get()
             .await()
             .documents
             .mapNotNull { doc ->
                 try {
                     val data = doc.data ?: return@mapNotNull null
+                    val lastUpdated = (data["lastFBUpdate"] as? com.google.firebase.Timestamp)
+                        ?.toDate()?.time ?: 0L
+
                     ItemEntity(
-                        Code        = data["Code"] as? String ?: "",
+                        Code = data["Code"] as? String ?: "",
                         DiscPercent = (data["DiscPercent"] as? Number)?.toDouble() ?: 0.0,
-                        MRP         = (data["MRP"] as? Number)?.toDouble() ?: 0.0,
-                        MasterCode  = data["MasterCode"]?.toString() ?: "",
-                        Name        = data["Name"] as? String ?: "",
-                        PRICE3      = (data["PRICE3"] as? Number)?.toDouble() ?: 0.0,
-                        Unit        = data["Unit"] as? String ?: "",
-                        imageExt    = data["imageExt"] as? String ?: "",
-                        imageH      = (data["imageH"] as? Number)?.toInt() ?: 0,
-                        imageW      = (data["imageW"] as? Number)?.toInt() ?: 0,
-                        imageYes    = data["imageYes"] as? Boolean ?: false
+                        MRP = (data["MRP"] as? Number)?.toDouble() ?: 0.0,
+                        MasterCode = data["MasterCode"]?.toString() ?: "",
+                        Name = data["Name"] as? String ?: "",
+                        PRICE3 = (data["PRICE3"] as? Number)?.toDouble() ?: 0.0,
+                        Unit = data["Unit"] as? String ?: "",
+                        imageExt = data["imageExt"] as? String ?: "",
+                        imageH = (data["imageH"] as? Number)?.toInt() ?: 0,
+                        imageW = (data["imageW"] as? Number)?.toInt() ?: 0,
+                        imageYes = data["imageYes"] as? Boolean ?: false,
+                        lastFBUpdate = lastUpdated
                     )
                 } catch (e: Exception) {
                     Log.e("Repository", "Error parsing document: ${doc.id}", e)
                     null
                 }
             }
-        Log.d("Repository", "Fetched ${items.size} items")
 
-        dao.clearAll()
+        Log.d("Repository", "Delta fetched ${items.size} items")
+
+        // If first sync: clear all, else: just insert or update
+        if (lastSync == 0L) {
+            dao.clearAll()
+        }
         dao.insertAll(items)
 
-        val imageDir = File(context.filesDir, "images").apply { mkdirs() }
-        // Images are fetched lazily per item card
-
-
+        // ✅ Update last sync time (if there are any items)
+        if (items.isNotEmpty()) {
+            val latestUpdate = items.maxOfOrNull { it.lastFBUpdate } ?: System.currentTimeMillis()
+            AppPrefs.setLastSyncTime(context, latestUpdate)
+            Log.d("Repository", "Updated local lastSync to $latestUpdate")
+        }
+        Log.d("Repository", "Delta sync since: $lastSync (${java.util.Date(lastSync)})")
 
     }
 
-    fun getLastServerUpdateTimestamp(): Long {
-        return System.currentTimeMillis() // Replace with Firestore field if you're storing that
+    suspend fun getLastServerUpdateTimestamp(): Long {
+        return try {
+            val doc = firestore.collection("DB_Service")
+                .document("serverSideData")
+                .get().await()
+
+            val isoString = doc.getString("latestImportFromServer")
+            if (isoString != null) {
+                val trimmed = isoString.takeWhile { it != '.' } + "." + isoString.substringAfter('.').take(3)
+                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS", java.util.Locale.getDefault())
+                sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                val date = sdf.parse(trimmed)
+                date?.time ?: 0L
+            } else {
+                Log.e("Repository", "Field is null")
+                0L
+            }
+        } catch (e: Exception) {
+            Log.e("Repository", "Failed to fetch last server update", e)
+            0L
+        }
     }
+
+
+
     suspend fun getAll(): List<ItemEntity> = dao.getAllItems()
 
     suspend fun search(rawQuery: String): List<ItemEntity> {

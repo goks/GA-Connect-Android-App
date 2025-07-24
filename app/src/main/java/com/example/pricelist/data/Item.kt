@@ -15,5 +15,6 @@ data class Item(
     val imageExt: String,
     val imageH: Int,
     val imageW: Int,
-    val imageYes: Boolean
+    val imageYes: Boolean,
+    val lastFBUpdate: Long = 0L
 )
