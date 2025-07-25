@@ -3,6 +3,8 @@ package com.example.pricelist.data
 import android.content.Context
 import android.util.Log
 import com.example.pricelist.util.AppPrefs
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage
@@ -26,7 +28,7 @@ class Repository(
 
 
         Log.d("Repository", "Delta sync since: $lastSync")
-        val items = firestore
+        val updatedItems  = firestore
             .collection("items")
             .whereGreaterThan("lastFBUpdate", com.google.firebase.Timestamp(lastSync / 1000, 0))
             .get()
@@ -58,22 +60,89 @@ class Repository(
                 }
             }
 
-        Log.d("Repository", "Delta fetched ${items.size} items")
+        Log.d("Repository", "Delta fetched ${updatedItems .size} items")
+
+        // 2️⃣ Get all MasterCodes from Firestore
+        val allActiveMasterCodes = try {
+            val doc = firestore.collection("DB_Service")
+                .document("active_ids_snapshot")
+                .get()
+                .await()
+
+            doc.get("activeMasterCodes") as? List<String> ?: emptyList()
+        } catch (e: Exception) {
+            Log.e("Repository", "Failed to fetch activeMasterCodes", e)
+            emptyList()
+        }.toSet()
 
         // If first sync: clear all, else: just insert or update
         if (lastSync == 0L) {
             dao.clearAll()
         }
-        dao.insertAll(items)
-
+        dao.insertAll(updatedItems )
         // ✅ Update last sync time (if there are any items)
-        if (items.isNotEmpty()) {
-            val latestUpdate = items.maxOfOrNull { it.lastFBUpdate } ?: System.currentTimeMillis()
+        if (updatedItems .isNotEmpty()) {
+            val latestUpdate = updatedItems .maxOfOrNull { it.lastFBUpdate } ?: System.currentTimeMillis()
             AppPrefs.setLastSyncTime(context, latestUpdate)
             Log.d("Repository", "Updated local lastSync to $latestUpdate")
         }
         Log.d("Repository", "Delta sync since: $lastSync (${java.util.Date(lastSync)})")
 
+        // 3️⃣ Get all MasterCodes from local Room DB
+        val localItems = dao.getAllItems()
+        val localMasterCodes = localItems.map { it.MasterCode }.toSet()
+
+        // 4️⃣ Identify items that exist in Room but not in Firestore → DELETE them
+        val itemsToDelete = localMasterCodes.subtract(allActiveMasterCodes)
+        Log.d("Repository", "itemsToDelete ${itemsToDelete.size} , localItems ${localItems.size}, firestoreMasterCodes ${allActiveMasterCodes.size}")
+        if (itemsToDelete.isNotEmpty()) {
+            Log.d("Repository", "Removing ${itemsToDelete.size} deleted items from local DB")
+            dao.deleteByMasterCodes(itemsToDelete.toList())
+        }
+        // 4️⃣ Add new items that are in Firestore but not in Room
+        val itemsToAdd = allActiveMasterCodes.subtract(localMasterCodes)
+        val newItems = mutableListOf<ItemEntity>()
+        if (itemsToAdd.isNotEmpty()) {
+            Log.d("Repository", "Fetching ${itemsToAdd.size} new items from Firestore")
+            val chunks = itemsToAdd.chunked(10) // Firestore `in` clause supports max 10
+            for (chunk in chunks) {
+                val snapshot = firestore.collection("items")
+                    .whereIn(FieldPath.documentId(), chunk.toList())
+                    .get()
+                    .await()
+
+                val parsed = snapshot.documents.mapNotNull { doc ->
+                    parseFirestoreItem(doc)
+                }
+                newItems += parsed
+            }
+            dao.insertAll(newItems)
+        }
+    }
+    private fun parseFirestoreItem(doc: DocumentSnapshot): ItemEntity? {
+        return try {
+            val data = doc.data ?: return null
+            val lastUpdated = (data["lastFBUpdate"] as? com.google.firebase.Timestamp)
+                ?.toDate()?.time ?: 0L
+
+            ItemEntity(
+                Code = data["Code"] as? String ?: "",
+                DiscPercent = (data["DiscPercent"] as? Number)?.toDouble() ?: 0.0,
+                MRP = (data["MRP"] as? Number)?.toDouble() ?: 0.0,
+                MasterCode = data["MasterCode"]?.toString() ?: "",
+                Name = data["Name"] as? String ?: "",
+                PRICE3 = (data["PRICE3"] as? Number)?.toDouble() ?: 0.0,
+                Unit = data["Unit"] as? String ?: "",
+                imageExt = data["imageExt"] as? String ?: "",
+                imageH = (data["imageH"] as? Number)?.toInt() ?: 0,
+                imageW = (data["imageW"] as? Number)?.toInt() ?: 0,
+                imageYes = data["imageYes"] as? Boolean ?: false,
+                lastFBUpdate = lastUpdated
+            )
+        } catch (e: Exception) {
+            Log.e("Repository", "Error parsing document: ${doc.id}", e)
+            null
+        }
     }
 
     suspend fun getLastServerUpdateTimestamp(): Long {
