@@ -6,14 +6,17 @@ import android.os.Environment
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
@@ -33,21 +36,26 @@ import coil.compose.AsyncImage
 import coil.compose.rememberAsyncImagePainter
 import com.example.pricelist.data.ItemEntity
 import com.example.pricelist.util.AppPrefs
+import com.example.pricelist.util.NotificationPermissionUtil
+import com.example.pricelist.util.StockAlertStore
+import com.example.pricelist.util.StockChangeChecker
 import com.example.pricelist.viewmodel.ItemViewModel
 import com.example.pricelist.viewmodel.ItemViewModelFactory
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.ktx.storage
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.io.File
+
 
 const val ROUTE_BROCHURES = "brochures"
 
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(navController: NavController) {
+fun HomeScreen(navController: NavController, highlightMasterCode: String? = null) {
     val context = LocalContext.current
     val viewModel: ItemViewModel = viewModel(factory = ItemViewModelFactory(context))
     val items by viewModel.itemsFlow.collectAsState()
@@ -59,7 +67,42 @@ fun HomeScreen(navController: NavController) {
     val lastSync = remember { AppPrefs.getLastSyncTime(context) }
     var syncing by remember { mutableStateOf(false) }
     var showUpdatePrompt by remember { mutableStateOf(false) }
+    var newStockAvailable by remember { mutableStateOf(false) }
 
+    // Stock checker reference
+    val stockChecker = remember { StockChangeChecker(context) }
+
+    // 🔔 Get MasterCodes with stock alerts
+    val alertMasterCodes = remember {
+        StockAlertStore.getAlerts(context).filter { it.delta > 0 }.map { it.message.split(" ").firstOrNull() ?: "" }
+    }
+
+    // For scrolling/highlighting
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    // --- Scroll to Top Button State ---
+    val showScrollToTop by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 10 }
+    }
+
+    var hasAutoScrolled by remember { mutableStateOf(false) }
+
+    // Place this inside your HomeScreen composable
+    LaunchedEffect(highlightMasterCode, items) {
+        if (highlightMasterCode != null && !hasAutoScrolled) {
+            val idx = items.indexOfFirst { it.MasterCode == highlightMasterCode }
+            if (idx >= 0) {
+                coroutineScope.launch {
+                    listState.animateScrollToItem(idx)
+                    hasAutoScrolled = true
+                }
+            }
+        }
+        // Reset auto-scroll if highlightMasterCode changes
+        if (highlightMasterCode == null) {
+            hasAutoScrolled = false
+        }
+    }
     LaunchedEffect(Unit) {
         if (firstSyncDone.value) {
             val serverUpdatedAt = viewModel.getLastServerUpdateTimestamp()
@@ -91,6 +134,28 @@ fun HomeScreen(navController: NavController) {
                                 navController.navigate(ROUTE_BROCHURES)
                             }
                         )
+//                        DropdownMenuItem(
+//                            text = { Text("Check for Stock Updates") },
+//                            onClick = {
+//                                showMenu = false
+//                                if (NotificationPermissionUtil.checkNotificationPermission(context)) {
+//                                    stockChecker.checkForNewStock { hasNewStock ->
+//                                        if (!hasNewStock) {
+//                                            Toast.makeText(context, "No new stock updates available", Toast.LENGTH_SHORT).show()
+//                                        }
+//                                    }
+//                                } else {
+//                                    Toast.makeText(context, "Notification permission required", Toast.LENGTH_SHORT).show()
+//                                }
+//                            }
+//                        )
+                        DropdownMenuItem(
+                            text = { Text("View Stock Alerts") },
+                            onClick = {
+                                showMenu = false
+                                navController.navigate("stock_alerts")
+                            }
+                        )
                         DropdownMenuItem(
                             text = { Text("Sign out") },
                             onClick = {
@@ -104,101 +169,157 @@ fun HomeScreen(navController: NavController) {
                 }
             )
         }
-    ) {  innerPadding ->
-        LazyColumn(
-//            contentPadding = innerPadding, // ✅ fixes shape/cutoff issues
-        modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 16.dp, vertical = 8.dp), // consistent horizontal padding,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-            item {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { viewModel.onSearchChanged(it) },
-                    label = { Text("Search items…") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        item {
-            val isSearching = query.isNotBlank()
-
-            if (!firstSyncDone.value &&  !isSearching && items.isEmpty()) {
-                if (syncing) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(8.dp))
-                } else {
-                    Button(
-                        onClick = {
-                            syncing = true
-                            viewModel.syncNow(context) {
-                                AppPrefs.setFirstSyncDone(context, true)
-                                AppPrefs.setLastSyncTime(context, System.currentTimeMillis())
-                                syncing = false
-                                firstSyncDone.value = true // ✅ mark sync done
-                            }
-                        },
-                        enabled = !syncing,
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Text("Sync from Firestore")
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-            } else if (showUpdatePrompt) {
-                OutlinedButton(
-                    onClick = {
-                        syncing = true
-                        viewModel.syncNow(context) {
-                            syncing = false
-                            showUpdatePrompt = false
-                        }
-                    },
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("New update available – Sync now?")
-                }
-            }
-
-
-        }
-
-        items(items) { item ->
-            ItemCard(item) { selectedItem = it }
-        }
-            if (items.isEmpty() && query.isNotBlank()) {
+    ) { innerPadding ->
+        Box(Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 item {
-                    Text(
-                        text = "No items found.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 24.dp)
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = {
+                            viewModel.onSearchChanged(it)
+                        },
+                        label = { Text("Search items…") },
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-            }    }
 
+                item {
+                    val isSearching = query.isNotBlank()
 
-    }
+                    if (!firstSyncDone.value && !isSearching && items.isEmpty()) {
+                        if (syncing) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            Spacer(Modifier.height(8.dp))
+                        } else {
+                            Button(
+                                onClick = {
+                                    syncing = true
+                                    viewModel.syncNow(context) {
+                                        AppPrefs.setFirstSyncDone(context, true)
+                                        AppPrefs.setLastSyncTime(context, System.currentTimeMillis())
+                                        syncing = false
+                                        firstSyncDone.value = true
+                                    }
+                                },
+                                enabled = !syncing,
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Text("Sync from Firestore")
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    } else if (showUpdatePrompt || newStockAvailable) {
+                        Column {
+                            if (showUpdatePrompt) {
+                                OutlinedButton(
+                                    onClick = {
+                                        syncing = true
+                                        viewModel.syncNow(context) {
+                                            syncing = false
+                                            showUpdatePrompt = false
 
-        selectedItem?.let { item ->
-            val imageFile = File(context.filesDir, "images/${item.MasterCode}${item.imageExt}")
-            if (item.imageYes && imageFile.exists()) {
-                ImageZoomDialog(
-                    file = imageFile,
-                    itemName = item.Name,
-                    imageW = item.imageW,
-                    imageH = item.imageH
+                                            // Also check for stock changes after sync
+                                            if (NotificationPermissionUtil.checkNotificationPermission(context)) {
+                                                stockChecker.checkForNewStock { hasNewStock ->
+                                                    newStockAvailable = false
+                                                }
+                                            }
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("New update available – Sync now?")
+                                }
+                            }
+
+                            if (newStockAvailable && !showUpdatePrompt) {
+                                Spacer(Modifier.height(8.dp))
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            "New stock items have been added",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                items(items) { item ->
+                    val highlight = highlightMasterCode != null && item.MasterCode == highlightMasterCode
+                    ItemCard(item, alertMasterCodes.contains(item.MasterCode), highlight) { selectedItem = it }
+                }
+
+                if (items.isEmpty() && query.isNotBlank()) {
+                    item {
+                        Text(
+                            text = "No items found.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 24.dp)
+                        )
+                    }
+                }
+            }
+            // --- Floating Scroll to Top Button ---
+            if (showScrollToTop) {
+                FloatingActionButton(
+                    onClick = {
+                        coroutineScope.launch { listState.animateScrollToItem(0) }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(24.dp),
+                    containerColor = MaterialTheme.colorScheme.primary
                 ) {
-                    selectedItem = null
+                    Icon(
+                        imageVector = Icons.Default.ArrowUpward,
+                        contentDescription = "Scroll to Top",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
             }
         }
     }
 
-
+    selectedItem?.let { item ->
+        val imageFile = File(context.filesDir, "images/${item.MasterCode}${item.imageExt}")
+        if (item.imageYes && imageFile.exists()) {
+            ImageZoomDialog(
+                file = imageFile,
+                itemName = item.Name,
+                imageW = item.imageW,
+                imageH = item.imageH
+            ) {
+                selectedItem = null
+            }
+        }
+    }
+}
 // -----------------------------
 // 🔻 Reusable Composables
 // -----------------------------
 @Composable
-fun ItemCard(item: ItemEntity, onImageClick: (ItemEntity) -> Unit) {
+fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolean = false, onImageClick: (ItemEntity) -> Unit) {
     val context = LocalContext.current
     val localFile = File(context.filesDir, "images/${item.MasterCode}${item.imageExt}")
     val imagePath = remember { mutableStateOf<String?>(null) }
@@ -224,7 +345,15 @@ fun ItemCard(item: ItemEntity, onImageClick: (ItemEntity) -> Unit) {
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                when {
+                    highlight -> Modifier.background(Color(0xFFB3E5FC)) // blue highlight for navigation
+                    hasStockAlert -> Modifier.background(Color(0xFFFFF9C4)) // subtle yellow for stock update
+                    else -> Modifier
+                }
+            ),
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(4.dp)
     ) {
@@ -265,7 +394,9 @@ fun ItemCard(item: ItemEntity, onImageClick: (ItemEntity) -> Unit) {
             }
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = item.Name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = item.Name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
                 Text(text = "₹${item.PRICE3} • Unit: ${item.Unit}", style = MaterialTheme.typography.bodyMedium)
                 Text(text = "Code: ${item.Code}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
 
@@ -382,4 +513,3 @@ fun downloadPdf(filename: String, context: Context, onComplete: () -> Unit) {
             onComplete()
         }
 }
-

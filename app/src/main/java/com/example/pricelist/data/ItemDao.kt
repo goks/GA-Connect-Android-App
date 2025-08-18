@@ -19,6 +19,9 @@ interface ItemDao {
     @Query("SELECT * FROM items WHERE Code = :code")
     suspend fun getItemByCode(code: String): ItemEntity?
 
+    @Query("SELECT * FROM items WHERE MasterCode = :code")
+    suspend fun getItemByMasterCode(code: String): ItemEntity?
+
     @Query("SELECT MasterCode FROM items")
     suspend fun getAllMasterCodes(): List<String>
 
