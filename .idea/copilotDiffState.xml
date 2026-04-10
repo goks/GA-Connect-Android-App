@@ -21,15 +21,6 @@
             </PendingDiffInfo>
           </value>
         </entry>
-        <entry key="$PROJECT_DIR$/app/src/main/java/com/example/pricelist/util/StockAlert.kt">
-          <value>
-            <PendingDiffInfo>
-              <option name="filePath" value="$PROJECT_DIR$/app/src/main/java/com/example/pricelist/util/StockAlert.kt" />
-              <option name="originalContent" value="// app/src/main/java/com/example/pricelist/util/StockAlert.kt&#10;package com.example.pricelist.util&#10;&#10;data class StockAlert(&#10;    val message: String,&#10;    val timestamp: Long,&#10;    val updatedAt: Long,&#10;    val delta: Int // Represents the change in stock quantity&#10;//    StockAlertStore.addAlert(context, StockAlert(message, System.currentTimeMillis()))&#10;)" />
-              <option name="updatedContent" value="// app/src/main/java/com/example/pricelist/util/StockAlert.kt&#10;package com.example.pricelist.util&#10;&#10;data class StockAlert(&#10;    val message: String,&#10;    val timestamp: Long,&#10;    val updatedAt: Long,&#10;    val delta: Int, // Represents the change in stock quantity&#10;    val unit: String, // Unit of the item&#10;    val masterCode: String // Add masterCode for navigation&#10;//    StockAlertStore.addAlert(context, StockAlert(message, System.currentTimeMillis()))&#10;)" />
-            </PendingDiffInfo>
-          </value>
-        </entry>
       </map>
     </option>
   </component>

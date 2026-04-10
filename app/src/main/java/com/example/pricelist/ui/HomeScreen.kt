@@ -5,6 +5,8 @@ import android.content.Context
 import android.os.Environment
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -48,6 +51,7 @@ import com.google.firebase.storage.ktx.storage
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.io.File
+import kotlin.compareTo
 
 
 const val ROUTE_BROCHURES = "brochures"
@@ -74,8 +78,11 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
 
     // 🔔 Get MasterCodes with stock alerts
     val alertMasterCodes = remember {
-        StockAlertStore.getAlerts(context).filter { it.delta > 0 }.map { it.message.split(" ").firstOrNull() ?: "" }
+        StockAlertStore.getAlerts(context)
+            .filter { it.delta > 0 }
+            .map { it.masterCode }
     }
+//    Log.d("HomeScreen", "Alert MasterCodes: $alertMasterCodes")
 
     // For scrolling/highlighting
     val listState = rememberLazyListState()
@@ -86,8 +93,10 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
     }
 
     var hasAutoScrolled by remember { mutableStateOf(false) }
+    // Remove animation state
+    var redrawTrigger by remember { mutableStateOf(0) }
 
-    // Place this inside your HomeScreen composable
+    // Auto-scroll logic without animation
     LaunchedEffect(highlightMasterCode, items) {
         if (highlightMasterCode != null && !hasAutoScrolled) {
             val idx = items.indexOfFirst { it.MasterCode == highlightMasterCode }
@@ -103,6 +112,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
             hasAutoScrolled = false
         }
     }
+
     LaunchedEffect(Unit) {
         if (firstSyncDone.value) {
             val serverUpdatedAt = viewModel.getLastServerUpdateTimestamp()
@@ -134,21 +144,6 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                                 navController.navigate(ROUTE_BROCHURES)
                             }
                         )
-//                        DropdownMenuItem(
-//                            text = { Text("Check for Stock Updates") },
-//                            onClick = {
-//                                showMenu = false
-//                                if (NotificationPermissionUtil.checkNotificationPermission(context)) {
-//                                    stockChecker.checkForNewStock { hasNewStock ->
-//                                        if (!hasNewStock) {
-//                                            Toast.makeText(context, "No new stock updates available", Toast.LENGTH_SHORT).show()
-//                                        }
-//                                    }
-//                                } else {
-//                                    Toast.makeText(context, "Notification permission required", Toast.LENGTH_SHORT).show()
-//                                }
-//                            }
-//                        )
                         DropdownMenuItem(
                             text = { Text("View Stock Alerts") },
                             onClick = {
@@ -266,7 +261,8 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
 
                 items(items) { item ->
                     val highlight = highlightMasterCode != null && item.MasterCode == highlightMasterCode
-                    ItemCard(item, alertMasterCodes.contains(item.MasterCode), highlight) { selectedItem = it }
+                    // Remove animation parameter and use redraw trigger to force recomposition
+                    ItemCard(item, alertMasterCodes.contains(item.MasterCode), highlight, redrawTrigger) { selectedItem = it }
                 }
 
                 if (items.isEmpty() && query.isNotBlank()) {
@@ -283,7 +279,11 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
             if (showScrollToTop) {
                 FloatingActionButton(
                     onClick = {
-                        coroutineScope.launch { listState.animateScrollToItem(0) }
+                        coroutineScope.launch {
+                            listState.animateScrollToItem(0)
+                            // Trigger card redraw by incrementing the counter
+                            redrawTrigger++
+                        }
                     },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -319,7 +319,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
 // 🔻 Reusable Composables
 // -----------------------------
 @Composable
-fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolean = false, onImageClick: (ItemEntity) -> Unit) {
+fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolean = false, redrawTrigger: Int = 0, onImageClick: (ItemEntity) -> Unit) {
     val context = LocalContext.current
     val localFile = File(context.filesDir, "images/${item.MasterCode}${item.imageExt}")
     val imagePath = remember { mutableStateOf<String?>(null) }
@@ -344,18 +344,20 @@ fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolea
         }
     }
 
+    // Determine the target color based on state and animation
+    val targetColor = if (highlight) Color(0xFFB3E5FC) else Color.Unspecified
+
+    val animatedColor by animateColorAsState(
+        targetValue = targetColor,
+        animationSpec = tween(durationMillis = 1000),
+        label = "cardHighlightAnimation"
+    )
+
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                when {
-                    highlight -> Modifier.background(Color(0xFFB3E5FC)) // blue highlight for navigation
-                    hasStockAlert -> Modifier.background(Color(0xFFFFF9C4)) // subtle yellow for stock update
-                    else -> Modifier
-                }
-            ),
+        modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(4.dp)
+        elevation = CardDefaults.cardElevation(4.dp),
+        colors = CardDefaults.cardColors(containerColor = animatedColor)
     ) {
         Row(
             modifier = Modifier
@@ -396,6 +398,16 @@ fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolea
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(text = item.Name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    if (hasStockAlert) {
+                        Icon(
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = "Stock update",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .padding(start = 6.dp)
+                        )
+                    }
                 }
                 Text(text = "₹${item.PRICE3} • Unit: ${item.Unit}", style = MaterialTheme.typography.bodyMedium)
                 Text(text = "Code: ${item.Code}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
