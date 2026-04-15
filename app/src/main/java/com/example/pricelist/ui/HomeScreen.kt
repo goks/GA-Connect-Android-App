@@ -38,7 +38,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.compose.rememberAsyncImagePainter
+import com.example.pricelist.BuildConfig
 import com.example.pricelist.data.ItemEntity
+import com.example.pricelist.util.AppUpdateInfo
+import com.example.pricelist.util.AppUpdateManager
 import com.example.pricelist.util.AppPrefs
 import com.example.pricelist.util.NotificationPermissionUtil
 import com.example.pricelist.util.StockAlertStore
@@ -67,6 +70,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
     val user = FirebaseAuth.getInstance().currentUser
     var selectedItem by remember { mutableStateOf<ItemEntity?>(null) }
     var showMenu by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     val firstSyncDone = remember { mutableStateOf(AppPrefs.isFirstSyncDone(context)) }
     val lastSync = remember { AppPrefs.getLastSyncTime(context) }
     var syncing by remember { mutableStateOf(false) }
@@ -175,6 +179,13 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                             onClick = {
                                 showMenu = false
                                 navController.navigate("stock_alerts")
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Settings") },
+                            onClick = {
+                                showMenu = false
+                                showSettings = true
                             }
                         )
                         DropdownMenuItem(
@@ -344,6 +355,10 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
         }
     }
 
+    if (showSettings) {
+        SettingsDialog(onDismiss = { showSettings = false })
+    }
+
     selectedItem?.let { item ->
         val imageFile = File(context.filesDir, "images/${item.MasterCode}${item.imageExt}")
         if (item.imageYes && imageFile.exists()) {
@@ -357,6 +372,110 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
             }
         }
     }
+}
+
+@Composable
+private fun SettingsDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var checking by remember { mutableStateOf(false) }
+    var downloading by remember { mutableStateOf(false) }
+    var updateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    var statusText by remember { mutableStateOf<String?>(null) }
+    val busy = checking || downloading
+
+    AlertDialog(
+        onDismissRequest = {
+            if (!busy) onDismiss()
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss, enabled = !busy) {
+                Text("Close")
+            }
+        },
+        title = { Text("Settings") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+
+                Button(
+                    onClick = {
+                        checking = true
+                        updateInfo = null
+                        statusText = "Checking GitHub releases..."
+                        coroutineScope.launch {
+                            try {
+                                val update = AppUpdateManager.checkForUpdate(BuildConfig.VERSION_NAME)
+                                updateInfo = update
+                                statusText = if (update == null) {
+                                    "You are already on the latest version."
+                                } else {
+                                    "Version ${update.versionName} is available."
+                                }
+                            } catch (e: Exception) {
+                                Log.e("SettingsDialog", "Update check failed", e)
+                                statusText = "Update check failed: ${e.message ?: "Unknown error"}"
+                            } finally {
+                                checking = false
+                            }
+                        }
+                    },
+                    enabled = !busy,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (checking) "Checking..." else "Check for new updates")
+                }
+
+                updateInfo?.let { update ->
+                    OutlinedButton(
+                        onClick = {
+                            if (!AppUpdateManager.canInstallPackages(context)) {
+                                statusText = "Allow installs from this app, then return and tap Download and install again."
+                                AppUpdateManager.openInstallPermissionSettings(context)
+                                return@OutlinedButton
+                            }
+
+                            downloading = true
+                            statusText = "Downloading version ${update.versionName}..."
+                            coroutineScope.launch {
+                                try {
+                                    val apk = AppUpdateManager.downloadApk(context, update)
+                                    statusText = "Download complete. Confirm installation when prompted."
+                                    AppUpdateManager.installApk(context, apk)
+                                } catch (e: Exception) {
+                                    Log.e("SettingsDialog", "Update download/install failed", e)
+                                    statusText = "Update failed: ${e.message ?: "Unknown error"}"
+                                } finally {
+                                    downloading = false
+                                }
+                            }
+                        },
+                        enabled = !busy,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (downloading) "Downloading..." else "Download and install")
+                    }
+                }
+
+                statusText?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (it.contains("failed", ignoreCase = true)) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+            }
+        }
+    )
 }
 // -----------------------------
 // 🔻 Reusable Composables
