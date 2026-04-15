@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Image
@@ -31,6 +32,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -204,16 +206,9 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                         label = { Text("Search items…") },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    // Diagnostic row for debugging: show counts and sync status
-                    Spacer(Modifier.height(6.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("items=${items.size}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                        Spacer(Modifier.width(12.dp))
-                        Text("firstSync=${firstSyncDone.value}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                        Spacer(Modifier.width(12.dp))
-                        Text("lastSync=${java.util.Date(lastSync)}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                        Spacer(Modifier.weight(1f))
-                        syncErrorMessage?.let { msg ->
+                    syncErrorMessage?.let { msg ->
+                        Spacer(Modifier.height(6.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(msg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -407,6 +402,7 @@ fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolea
     )
 
     var showTaxBreakdown by remember { mutableStateOf(false) }
+    var showUnitPriceDialog by remember { mutableStateOf(false) }
     val taxPercent = item.TaxPercent
     val salePrice = item.PRICE3
     val taxPrice = salePrice * taxPercent / 100.0
@@ -525,7 +521,15 @@ fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolea
                         ) {
                             PriceBreakdownText("Sale", "₹$salePriceFormatted", Modifier.weight(1f))
                             PriceBreakdownText("GST", "₹$taxPriceFormatted", Modifier.weight(1f))
-                            PriceBreakdownText("Total", "₹$totalPriceFormatted", Modifier.weight(1f), emphasize = true)
+                            PriceBreakdownText(
+                                label = "Total",
+                                value = "₹$totalPriceFormatted",
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { showUnitPriceDialog = true },
+                                emphasize = true,
+                                helper = "Calculate"
+                            )
                         }
                     }
                 }
@@ -537,6 +541,14 @@ fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolea
             }
         }
     }
+
+    if (showUnitPriceDialog) {
+        UnitPriceDialog(
+            itemName = item.Name,
+            totalPrice = totalPrice,
+            onDismiss = { showUnitPriceDialog = false }
+        )
+    }
 }
 
 @Composable
@@ -544,7 +556,8 @@ private fun PriceBreakdownText(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
-    emphasize: Boolean = false
+    emphasize: Boolean = false,
+    helper: String? = null
 ) {
     Column(modifier = modifier) {
         Text(
@@ -558,7 +571,100 @@ private fun PriceBreakdownText(
             color = if (emphasize) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = if (emphasize) FontWeight.Bold else FontWeight.Medium
         )
+        helper?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
     }
+}
+
+@Composable
+private fun UnitPriceDialog(
+    itemName: String,
+    totalPrice: Double,
+    onDismiss: () -> Unit
+) {
+    var input by remember { mutableStateOf("3") }
+    var operation by remember { mutableStateOf(UnitPriceOperation.Divide) }
+    val factor = input.toDoubleOrNull()
+    val result = when {
+        factor == null || factor == 0.0 -> null
+        operation == UnitPriceOperation.Divide -> totalPrice / factor
+        else -> totalPrice * factor
+    }
+    val totalPriceFormatted = String.format(Locale.getDefault(), "%.2f", totalPrice)
+    val resultFormatted = result?.let { String.format(Locale.getDefault(), "%.2f", it) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        },
+        title = { Text(itemName) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "Tax incl. price: ₹$totalPriceFormatted",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = operation == UnitPriceOperation.Divide,
+                        onClick = { operation = UnitPriceOperation.Divide },
+                        label = { Text("Divide") }
+                    )
+                    FilterChip(
+                        selected = operation == UnitPriceOperation.Multiply,
+                        onClick = { operation = UnitPriceOperation.Multiply },
+                        label = { Text("Multiply") }
+                    )
+                }
+
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { value ->
+                        input = value.filter { it.isDigit() || it == '.' }
+                    },
+                    label = { Text("Value") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = if (operation == UnitPriceOperation.Divide) "Unit price" else "Calculated price",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = resultFormatted?.let { "₹$it" } ?: "Enter a valid value",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
+        }
+    )
+}
+
+private enum class UnitPriceOperation {
+    Divide,
+    Multiply
 }
 
 @Composable
