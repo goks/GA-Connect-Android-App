@@ -1,8 +1,15 @@
 package com.example.pricelist.ui
 
 import android.Manifest
+import android.app.Activity
+import android.content.pm.PackageManager
+import android.content.pm.Signature
 import android.content.Context
+import android.content.Intent
+import android.util.Base64
+import android.util.Log
 import android.location.Location
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
@@ -24,6 +31,7 @@ import com.example.pricelist.R
 import com.google.accompanist.permissions.*
 import com.google.android.gms.auth.api.signin.*
 import com.google.android.gms.common.api.ApiException
+import java.security.MessageDigest
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.firebase.auth.*
@@ -31,6 +39,8 @@ import com.google.firebase.firestore.*
 import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.ui.res.painterResource
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
 
 
 /*------------------------------------------------------------*/
@@ -96,7 +106,25 @@ fun LoginScreen(navController: NavController) {
     LaunchedEffect(locPerm.status) {
         if (locPerm.status.isGranted && !loading && auth.currentUser == null) {
             loading = true
-            startSignIn(context, launcher, clientId)
+            // Ensure Google Play Services are available before attempting sign-in
+            val gpaStatus = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context)
+            if (gpaStatus != ConnectionResult.SUCCESS) {
+                Log.e("LoginScreen", "Play Services not available: $gpaStatus")
+                errorText = "Google Play Services not available or out of date. Please update Google Play Services."
+                loading = false
+            } else {
+                try {
+                    startSignIn(context, launcher, clientId)
+                } catch (e: SecurityException) {
+                    Log.e("LoginScreen", "SecurityException during startSignIn", e)
+                    errorText = "Google sign-in failed: security error. Please ensure Google Play Services is available and the app is configured correctly (package name / SHA-1)."
+                    loading = false
+                } catch (e: Exception) {
+                    Log.e("LoginScreen", "Error during startSignIn", e)
+                    errorText = "Google sign-in failed: ${e.message}"
+                    loading = false
+                }
+            }
         }
     }
 
@@ -146,7 +174,25 @@ fun LoginScreen(navController: NavController) {
                         val afterPerms: () -> Unit = {
                             loading = true
                             gClient.signOut().addOnCompleteListener {
-                                launcher.launch(gClient.signInIntent)
+                                // Check Play Services before launching
+                                val gpaStatus = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context)
+                                if (gpaStatus != ConnectionResult.SUCCESS) {
+                                    Log.e("LoginScreen", "Play Services not available before launcher: $gpaStatus")
+                                    errorText = "Google Play Services not available or out of date. Please update Google Play Services."
+                                    loading = false
+                                    return@addOnCompleteListener
+                                }
+                                try {
+                                    launcher.launch(gClient.signInIntent)
+                                } catch (e: SecurityException) {
+                                    Log.e("LoginScreen", "SecurityException launching sign-in intent", e)
+                                    errorText = "Google sign-in failed: security error. Check Play Services and app configuration (package name / SHA-1)."
+                                    loading = false
+                                } catch (e: Exception) {
+                                    Log.e("LoginScreen", "Error launching sign-in intent", e)
+                                    errorText = "Google sign-in failed: ${e.message}"
+                                    loading = false
+                                }
                             }
                         }
 
@@ -170,13 +216,40 @@ fun LoginScreen(navController: NavController) {
                     Spacer(Modifier.height(16.dp))
                     Text(it, color = MaterialTheme.colorScheme.error)
 
+                    Spacer(Modifier.height(8.dp))
+                    // Offer a quick action to open Play Store for Google Play Services
+                    val activity = LocalContext.current as? Activity
+                    OutlinedButton(onClick = {
+                        val playStoreIntent = try {
+                            Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.google.android.gms"))
+                        } catch (e: Exception) {
+                            Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=com.google.android.gms"))
+                        }
+                        activity?.startActivity(playStoreIntent)
+                    }) {
+                        Text("Update Google Play Services")
+                    }
+
                     TextButton(onClick = {
                         errorText = null
                         if (!locPerm.status.isGranted) {
                             locPerm.launchPermissionRequest()
                         } else {
                             loading = true
-                            startSignIn(context, launcher, clientId)
+                            // Before retrying, check Play Services again
+                            val gpaStatus = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context)
+                            if (gpaStatus != ConnectionResult.SUCCESS) {
+                                errorText = "Google Play Services not available or out of date. Please update Google Play Services."
+                                loading = false
+                            } else {
+                                try {
+                                    startSignIn(context, launcher, clientId)
+                                } catch (e: Exception) {
+                                    Log.e("LoginScreen", "Error on retry startSignIn", e)
+                                    errorText = "Google sign-in failed: ${e.message}"
+                                    loading = false
+                                }
+                            }
                         }
                     }) {
                         Text("Retry")
@@ -184,6 +257,35 @@ fun LoginScreen(navController: NavController) {
                 }
             }
         }
+    }
+}
+
+private fun getSigningCertificateSHA1(context: Context): String? {
+    return try {
+        val pm = context.packageManager
+        val packageName = context.packageName
+        val pi = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            pm.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        } else {
+            pm.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
+        }
+
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            @Suppress("DEPRECATION")
+            pi.signingInfo?.apkContentsSigners.orEmpty()
+        } else {
+            @Suppress("DEPRECATION")
+            pi.signatures.orEmpty()
+        }
+
+        if (signatures.isEmpty()) return null
+        val md = MessageDigest.getInstance("SHA-1")
+        val cert = signatures[0].toByteArray()
+        val sha1 = md.digest(cert)
+        sha1.joinToString(":") { String.format("%02X", it) }
+    } catch (e: Exception) {
+        Log.e("LoginScreen", "Error getting signing SHA1", e)
+        null
     }
 }
 

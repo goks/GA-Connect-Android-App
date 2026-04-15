@@ -52,6 +52,8 @@ class Repository(
                         imageH = (data["imageH"] as? Number)?.toInt() ?: 0,
                         imageW = (data["imageW"] as? Number)?.toInt() ?: 0,
                         imageYes = data["imageYes"] as? Boolean ?: false,
+                        // Read TaxPercent if present in Firestore
+                        TaxPercent = (data["TaxPercent"] as? Number)?.toDouble() ?: 0.0,
                         lastFBUpdate = lastUpdated
                     )
                 } catch (e: Exception) {
@@ -137,6 +139,8 @@ class Repository(
                 imageH = (data["imageH"] as? Number)?.toInt() ?: 0,
                 imageW = (data["imageW"] as? Number)?.toInt() ?: 0,
                 imageYes = data["imageYes"] as? Boolean ?: false,
+                // Read TaxPercent when parsing individual items
+                TaxPercent = (data["TaxPercent"] as? Number)?.toDouble() ?: 0.0,
                 lastFBUpdate = lastUpdated
             )
         } catch (e: Exception) {

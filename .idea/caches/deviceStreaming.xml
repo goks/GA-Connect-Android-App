@@ -149,34 +149,10 @@
           <option name="screenY" value="2408" />
         </PersistentDeviceSelectionData>
         <PersistentDeviceSelectionData>
-          <option name="api" value="34" />
-          <option name="brand" value="samsung" />
-          <option name="codename" value="a14m" />
-          <option name="id" value="a14m" />
-          <option name="labId" value="google" />
-          <option name="manufacturer" value="Samsung" />
-          <option name="name" value="SM-A145R" />
-          <option name="screenDensity" value="450" />
-          <option name="screenX" value="1080" />
-          <option name="screenY" value="2408" />
-        </PersistentDeviceSelectionData>
-        <PersistentDeviceSelectionData>
           <option name="api" value="35" />
           <option name="brand" value="samsung" />
           <option name="codename" value="a14xmsq" />
           <option name="id" value="a14xmsq" />
-          <option name="labId" value="google" />
-          <option name="manufacturer" value="Samsung" />
-          <option name="name" value="Galaxy A14 5G" />
-          <option name="screenDensity" value="450" />
-          <option name="screenX" value="1080" />
-          <option name="screenY" value="2408" />
-        </PersistentDeviceSelectionData>
-        <PersistentDeviceSelectionData>
-          <option name="api" value="35" />
-          <option name="brand" value="samsung" />
-          <option name="codename" value="a14xmtfn" />
-          <option name="id" value="a14xmtfn" />
           <option name="labId" value="google" />
           <option name="manufacturer" value="Samsung" />
           <option name="name" value="Galaxy A14 5G" />
@@ -291,18 +267,6 @@
           <option name="screenDensity" value="300" />
           <option name="screenX" value="720" />
           <option name="screenY" value="1600" />
-        </PersistentDeviceSelectionData>
-        <PersistentDeviceSelectionData>
-          <option name="api" value="36" />
-          <option name="brand" value="samsung" />
-          <option name="codename" value="a26x" />
-          <option name="id" value="a26x" />
-          <option name="labId" value="google" />
-          <option name="manufacturer" value="Samsung" />
-          <option name="name" value="SM-A266B" />
-          <option name="screenDensity" value="450" />
-          <option name="screenX" value="1080" />
-          <option name="screenY" value="2340" />
         </PersistentDeviceSelectionData>
         <PersistentDeviceSelectionData>
           <option name="api" value="36" />
@@ -479,7 +443,7 @@
           <option name="id" value="b5qsqw" />
           <option name="labId" value="google" />
           <option name="manufacturer" value="Samsung" />
-          <option name="name" value="Galaxy Z Flip 5" />
+          <option name="name" value="Galaxy Z Flip5" />
           <option name="screenDensity" value="340" />
           <option name="screenX" value="748" />
           <option name="screenY" value="720" />
@@ -491,7 +455,7 @@
           <option name="id" value="b6q" />
           <option name="labId" value="google" />
           <option name="manufacturer" value="Samsung" />
-          <option name="name" value="Galaxy Z Flip 6" />
+          <option name="name" value="Galaxy Z Flip6" />
           <option name="screenDensity" value="340" />
           <option name="screenX" value="1080" />
           <option name="screenY" value="2640" />
@@ -503,7 +467,7 @@
           <option name="id" value="b6qsqw" />
           <option name="labId" value="google" />
           <option name="manufacturer" value="Samsung" />
-          <option name="name" value="Galaxy Z Flip 6" />
+          <option name="name" value="Galaxy Z Flip6" />
           <option name="screenDensity" value="480" />
           <option name="screenX" value="1080" />
           <option name="screenY" value="2640" />
@@ -580,6 +544,11 @@
           <option name="screenDensity" value="390" />
           <option name="screenX" value="2076" />
           <option name="screenY" value="2152" />
+          <option name="tags">
+            <list>
+              <option value="dda-default" />
+            </list>
+          </option>
         </PersistentDeviceSelectionData>
         <PersistentDeviceSelectionData>
           <option name="api" value="35" />
@@ -593,6 +562,11 @@
           <option name="screenDensity" value="390" />
           <option name="screenX" value="2076" />
           <option name="screenY" value="2152" />
+          <option name="tags">
+            <list>
+              <option value="dda-default" />
+            </list>
+          </option>
         </PersistentDeviceSelectionData>
         <PersistentDeviceSelectionData>
           <option name="api" value="35" />
@@ -690,6 +664,11 @@
           <option name="screenDensity" value="480" />
           <option name="screenX" value="1080" />
           <option name="screenY" value="2340" />
+          <option name="tags">
+            <list>
+              <option value="dda-default" />
+            </list>
+          </option>
         </PersistentDeviceSelectionData>
         <PersistentDeviceSelectionData>
           <option name="api" value="36" />
@@ -703,6 +682,11 @@
           <option name="screenDensity" value="480" />
           <option name="screenX" value="1080" />
           <option name="screenY" value="2340" />
+          <option name="tags">
+            <list>
+              <option value="dda-default" />
+            </list>
+          </option>
         </PersistentDeviceSelectionData>
         <PersistentDeviceSelectionData>
           <option name="api" value="36" />
@@ -993,6 +977,23 @@
           <option name="screenDensity" value="340" />
           <option name="screenX" value="1600" />
           <option name="screenY" value="2560" />
+        </PersistentDeviceSelectionData>
+        <PersistentDeviceSelectionData>
+          <option name="accessStatus">
+            <list>
+              <option value="EULA_NOT_ACCEPTED" />
+            </list>
+          </option>
+          <option name="api" value="36" />
+          <option name="brand" value="HONOR" />
+          <option name="codename" value="honor_lab_hnmbhx" />
+          <option name="id" value="honor_lab_hnmbhx" />
+          <option name="labId" value="honor" />
+          <option name="manufacturer" value="HONOR" />
+          <option name="name" value="Magic V5" />
+          <option name="screenDensity" value="480" />
+          <option name="screenX" value="2172" />
+          <option name="screenY" value="2352" />
         </PersistentDeviceSelectionData>
         <PersistentDeviceSelectionData>
           <option name="api" value="34" />
@@ -1495,6 +1496,11 @@
           <option name="screenDensity" value="440" />
           <option name="screenX" value="1080" />
           <option name="screenY" value="2340" />
+          <option name="tags">
+            <list>
+              <option value="default" />
+            </list>
+          </option>
         </PersistentDeviceSelectionData>
         <PersistentDeviceSelectionData>
           <option name="accessStatus">
@@ -1721,6 +1727,11 @@
           <option name="screenDensity" value="420" />
           <option name="screenX" value="1080" />
           <option name="screenY" value="2424" />
+          <option name="tags">
+            <list>
+              <option value="dda-default" />
+            </list>
+          </option>
         </PersistentDeviceSelectionData>
         <PersistentDeviceSelectionData>
           <option name="api" value="35" />
@@ -1734,6 +1745,11 @@
           <option name="screenDensity" value="420" />
           <option name="screenX" value="1080" />
           <option name="screenY" value="2424" />
+          <option name="tags">
+            <list>
+              <option value="dda-default" />
+            </list>
+          </option>
         </PersistentDeviceSelectionData>
         <PersistentDeviceSelectionData>
           <option name="api" value="36" />
@@ -1747,6 +1763,11 @@
           <option name="screenDensity" value="420" />
           <option name="screenX" value="1080" />
           <option name="screenY" value="2424" />
+          <option name="tags">
+            <list>
+              <option value="dda-default" />
+            </list>
+          </option>
         </PersistentDeviceSelectionData>
         <PersistentDeviceSelectionData>
           <option name="accessStatus">

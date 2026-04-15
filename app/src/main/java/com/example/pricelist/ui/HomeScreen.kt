@@ -8,7 +8,6 @@ import android.widget.Toast
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
@@ -51,8 +50,7 @@ import com.google.firebase.storage.ktx.storage
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.io.File
-import kotlin.compareTo
-
+import java.util.Locale
 
 const val ROUTE_BROCHURES = "brochures"
 
@@ -72,6 +70,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
     var syncing by remember { mutableStateOf(false) }
     var showUpdatePrompt by remember { mutableStateOf(false) }
     var newStockAvailable by remember { mutableStateOf(false) }
+    var syncErrorMessage by remember { mutableStateOf<String?>(null) }
 
     // Stock checker reference
     val stockChecker = remember { StockChangeChecker(context) }
@@ -95,6 +94,8 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
     var hasAutoScrolled by remember { mutableStateOf(false) }
     // Remove animation state
     var redrawTrigger by remember { mutableStateOf(0) }
+    // Auto-sync guard to avoid multiple automatic sync attempts
+    var autoSyncStarted by remember { mutableStateOf(false) }
 
     // Auto-scroll logic without animation
     LaunchedEffect(highlightMasterCode, items) {
@@ -118,6 +119,29 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
             val serverUpdatedAt = viewModel.getLastServerUpdateTimestamp()
             if (serverUpdatedAt > lastSync) {
                 showUpdatePrompt = true
+            }
+        }
+    }
+
+    // If first sync hasn't been done yet, start automatic sync once after login
+    LaunchedEffect(items) {
+        // If local DB is empty after login, attempt one auto-sync (covers cases where DB was wiped but AppPrefs says first sync done)
+        if (!autoSyncStarted && items.isEmpty()) {
+            autoSyncStarted = true
+            syncing = true
+            viewModel.syncNow(context) { success, errorMessage ->
+                syncing = false
+                if (success) {
+                    // Persist first-sync and last sync time so the UI won't prompt again
+                    AppPrefs.setFirstSyncDone(context, true)
+                    AppPrefs.setLastSyncTime(context, System.currentTimeMillis())
+                    firstSyncDone.value = true
+                    syncErrorMessage = null
+                } else {
+                    // Sync failed — show a small toast so user knows
+                    syncErrorMessage = errorMessage ?: "Auto-sync failed. Tap Sync from Firestore to retry."
+                    Log.w("HomeScreen", "Auto-sync failed; items still empty. $errorMessage")
+                }
             }
         }
     }
@@ -180,6 +204,19 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                         label = { Text("Search items…") },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    // Diagnostic row for debugging: show counts and sync status
+                    Spacer(Modifier.height(6.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("items=${items.size}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        Spacer(Modifier.width(12.dp))
+                        Text("firstSync=${firstSyncDone.value}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        Spacer(Modifier.width(12.dp))
+                        Text("lastSync=${java.util.Date(lastSync)}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        Spacer(Modifier.weight(1f))
+                        syncErrorMessage?.let { msg ->
+                            Text(msg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
 
                 item {
@@ -193,19 +230,25 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                             Button(
                                 onClick = {
                                     syncing = true
-                                    viewModel.syncNow(context) {
-                                        AppPrefs.setFirstSyncDone(context, true)
-                                        AppPrefs.setLastSyncTime(context, System.currentTimeMillis())
+                                    viewModel.syncNow(context) { success, errorMessage ->
                                         syncing = false
-                                        firstSyncDone.value = true
-                                    }
-                                },
-                                enabled = !syncing,
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                            ) {
-                                Text("Sync from Firestore")
-                            }
+                                        if (success) {
+                                            AppPrefs.setFirstSyncDone(context, true)
+                                            AppPrefs.setLastSyncTime(context, System.currentTimeMillis())
+                                            firstSyncDone.value = true
+                                            syncErrorMessage = null
+                                        } else {
+                                            syncErrorMessage = errorMessage ?: "Sync failed. Check logs and retry."
+                                            Log.w("HomeScreen", "Manual sync failed via button. $errorMessage")
+                                        }
+                                 }
+                                 },
+                                 enabled = !syncing,
+                                 shape = RoundedCornerShape(8.dp),
+                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                             ) {
+                                 Text("Sync from Firestore")
+                             }
                             Spacer(Modifier.height(8.dp))
                         }
                     } else if (showUpdatePrompt || newStockAvailable) {
@@ -214,12 +257,17 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                                 OutlinedButton(
                                     onClick = {
                                         syncing = true
-                                        viewModel.syncNow(context) {
+                                        viewModel.syncNow(context) { success, errorMessage ->
                                             syncing = false
-                                            showUpdatePrompt = false
+                                            if (success) {
+                                                showUpdatePrompt = false
+                                                syncErrorMessage = null
+                                            } else {
+                                                syncErrorMessage = errorMessage ?: "Sync failed. Check logs and retry."
+                                            }
 
                                             // Also check for stock changes after sync
-                                            if (NotificationPermissionUtil.checkNotificationPermission(context)) {
+                                            if (success && NotificationPermissionUtil.checkNotificationPermission(context)) {
                                                 stockChecker.checkForNewStock { hasNewStock ->
                                                     newStockAvailable = false
                                                 }
@@ -321,11 +369,16 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
 @Composable
 fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolean = false, redrawTrigger: Int = 0, onImageClick: (ItemEntity) -> Unit) {
     val context = LocalContext.current
-    val localFile = File(context.filesDir, "images/${item.MasterCode}${item.imageExt}")
+    val localFile = remember(item.MasterCode, item.imageExt) {
+        File(context.filesDir, "images/${item.MasterCode}${item.imageExt}")
+    }
     val imagePath = remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
 
-    LaunchedEffect(item.imageYes) {
+    LaunchedEffect(item.MasterCode, item.imageExt, item.imageYes) {
+        imagePath.value = null
+        isLoading = false
+
         if (item.imageYes) {
             if (localFile.exists()) {
                 imagePath.value = localFile.absolutePath
@@ -353,6 +406,18 @@ fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolea
         label = "cardHighlightAnimation"
     )
 
+    var showTaxBreakdown by remember { mutableStateOf(false) }
+    val taxPercent = item.TaxPercent
+    val salePrice = item.PRICE3
+    val taxPrice = salePrice * taxPercent / 100.0
+    val totalPrice = salePrice + taxPrice
+    val salePriceFormatted = String.format(Locale.getDefault(), "%.2f", salePrice)
+    val taxPriceFormatted = String.format(Locale.getDefault(), "%.2f", taxPrice)
+    val totalPriceFormatted = String.format(Locale.getDefault(), "%.2f", totalPrice)
+
+    // Use redrawTrigger to avoid it being reported as unused; no-op side effect
+    LaunchedEffect(redrawTrigger) { /* no-op: used to trigger recomposition */ }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -368,17 +433,18 @@ fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolea
             if (item.imageYes) {
                 Box(
                     modifier = Modifier
+                        .padding(end = 12.dp)
                         .size(72.dp)
-                        .padding(end = 12.dp),
+                        .clickable(enabled = imagePath.value != null) {
+                            onImageClick(item)
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     if (imagePath.value != null) {
                         AsyncImage(
                             model = File(imagePath.value!!),
                             contentDescription = null,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clickable { onImageClick(item) }
+                            modifier = Modifier.fillMaxSize()
                         )
                     } else {
                         if (isLoading) {
@@ -409,7 +475,60 @@ fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolea
                         )
                     }
                 }
-                Text(text = "₹${item.PRICE3} • Unit: ${item.Unit}", style = MaterialTheme.typography.bodyMedium)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showTaxBreakdown = !showTaxBreakdown },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Sale ₹$salePriceFormatted",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Unit: ${item.Unit}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (showTaxBreakdown) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
+                        tonalElevation = 2.dp,
+                        shadowElevation = 1.dp
+                    ) {
+                        Text(
+                            text = "GST ${taxPercent.toInt()}%",
+                            color = if (showTaxBreakdown) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+
+                if (showTaxBreakdown) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            PriceBreakdownText("Sale", "₹$salePriceFormatted", Modifier.weight(1f))
+                            PriceBreakdownText("GST", "₹$taxPriceFormatted", Modifier.weight(1f))
+                            PriceBreakdownText("Total", "₹$totalPriceFormatted", Modifier.weight(1f), emphasize = true)
+                        }
+                    }
+                }
                 Text(text = "Code: ${item.Code}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
 
                 if (item.DiscPercent != 0.0) {
@@ -417,6 +536,28 @@ fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolea
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PriceBreakdownText(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    emphasize: Boolean = false
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (emphasize) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = if (emphasize) FontWeight.Bold else FontWeight.Medium
+        )
     }
 }
 

@@ -7,7 +7,8 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [ItemEntity::class, ItemFts::class], // include FTS entity
-    version = 1,
+    // Bumped DB version to include new `TaxPercent` column
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

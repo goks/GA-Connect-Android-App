@@ -40,11 +40,12 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
     /* ---------------------------------------------------- */
     fun syncNow(
         context: Context,
-        onComplete: (success: Boolean) -> Unit
+        onComplete: (success: Boolean, errorMessage: String?) -> Unit
     ) {
         viewModelScope.launch {
             val prefs = context.getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
             var ok = false
+            var errorMsg: String? = null
 
             try {
                 withTimeout(15_000L) {
@@ -60,10 +61,12 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
                 }
             } catch (t: TimeoutCancellationException) {
                 Log.e("SyncNow", "Sync timed‑out (15 s)")
+                errorMsg = "Sync timed out"
             } catch (e: Exception) {
                 Log.e("SyncNow", "Sync error", e)
+                errorMsg = e.message ?: "Unknown sync error"
             } finally {
-                onComplete(ok)
+                onComplete(ok, errorMsg)
             }
         }
     }
