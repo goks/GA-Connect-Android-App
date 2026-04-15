@@ -1,0 +1,30 @@
+# Gradle
+.gradle/
+build/
+**/build/
+gradle/gradle-daemon-jvm.properties
+
+# Android Studio / IntelliJ local state
+.idea/workspace.xml
+.idea/shelf/
+.idea/caches/
+.idea/copilot.data.migration*.xml
+*.iml
+
+# Local machine config
+local.properties
+
+# Firebase config. Provide this in CI via the GOOGLE_SERVICES_JSON secret.
+app/google-services.json
+
+# Signing keys and release outputs
+*.jks
+*.keystore
+app/release/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
