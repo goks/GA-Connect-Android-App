@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.pricelist.data.Brochure
 import com.example.pricelist.viewmodel.BrochureViewModel
 import com.example.pricelist.viewmodel.BrochureVMFactory
 import kotlinx.coroutines.flow.collectLatest
@@ -32,9 +33,9 @@ fun BrochureScreen(onBack: () -> Unit) {
 
     // one‑shot open
     LaunchedEffect(Unit) {
-        vm.openDoc.collectLatest { uri ->
+        vm.openDoc.collectLatest { doc ->
             val view = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/pdf")
+                setDataAndType(doc.uri, doc.contentType)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             ctx.startActivity(view)
@@ -65,6 +66,7 @@ fun BrochureScreen(onBack: () -> Unit) {
                     items(  list, key = { it.id }) { b ->
                         ListItem(
                             headlineContent = { Text(b.name) },
+                            supportingContent = { BrochureSummary(b) },
                             leadingContent  = {
                                 if (progress[b.id] != null) {
                                     CircularProgressIndicator(
@@ -85,5 +87,21 @@ fun BrochureScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun BrochureSummary(brochure: Brochure) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (brochure.description.isNotBlank()) {
+            Text(brochure.description)
+        }
+        if (brochure.brochureDate.isNotBlank()) {
+            Text("Date: ${brochure.brochureDate}", style = MaterialTheme.typography.bodySmall)
+        }
+        Text(
+            if (brochure.contentType.startsWith("image/")) "Image" else "PDF",
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
