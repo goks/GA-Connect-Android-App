@@ -9,6 +9,11 @@ import com.example.pricelist.data.BrochureRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+data class BrochureDocument(
+    val uri: Uri,
+    val contentType: String
+)
+
 class BrochureViewModel(
     private val repo: BrochureRepository = BrochureRepository()
 ) : ViewModel() {
@@ -19,8 +24,8 @@ class BrochureViewModel(
     private val _downloadProgress = MutableStateFlow<Map<String,Float>>(emptyMap())
     val  downloadProgress : StateFlow<Map<String,Float>> = _downloadProgress
 
-    private val _openDoc = MutableSharedFlow<Uri>()
-    val  openDoc : SharedFlow<Uri> = _openDoc     // UI collects & opens via Intent
+    private val _openDoc = MutableSharedFlow<BrochureDocument>()
+    val  openDoc : SharedFlow<BrochureDocument> = _openDoc     // UI collects & opens via Intent
 
     /** load once when screen starts */
     fun refresh() = viewModelScope.launch {
@@ -33,6 +38,6 @@ class BrochureViewModel(
             _downloadProgress.update { it + (b.id to pct) }
         }
         _downloadProgress.update { it - b.id }   // remove progress entry
-        _openDoc.emit(uri)
+        _openDoc.emit(BrochureDocument(uri, b.contentType.ifBlank { "application/pdf" }))
     }
 }

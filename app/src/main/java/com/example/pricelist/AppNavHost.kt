@@ -7,6 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.pricelist.ui.AdminScreen
 import com.example.pricelist.ui.BrochureScreen
 import com.example.pricelist.ui.HomeScreen
 import com.example.pricelist.ui.LoginScreen
@@ -14,6 +15,7 @@ import com.example.pricelist.ui.StockAlertsScreen
 import com.google.firebase.auth.FirebaseAuth
 
 const val ROUTE_BROCHURES = "brochures"
+const val ROUTE_ADMIN = "admin"
 
 @Composable
 fun AppNavHost(startStockAlerts: Boolean = false) {
@@ -51,6 +53,9 @@ fun AppNavHost(startStockAlerts: Boolean = false) {
                     navController.popBackStack()
                 }
             })
+        }
+        composable(ROUTE_ADMIN) {
+            AdminScreen(onBack = { navController.popBackStack() })
         }
         addBrochureRoute(navController) // ✅ Attach brochure screen
     }

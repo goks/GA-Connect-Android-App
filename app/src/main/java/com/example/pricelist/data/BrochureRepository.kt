@@ -2,6 +2,7 @@ package com.example.pricelist.data
 
 import android.content.Context
 import android.net.Uri
+import androidx.core.content.FileProvider
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage
 import com.google.firebase.firestore.ktx.firestore
@@ -40,18 +41,20 @@ class BrochureRepository {
         val dir  = File(ctx.filesDir, "brochures").apply { mkdirs() }
         val file = File(dir, brochure.file)
 
-        // already cached — just return
-        if (file.exists()) return@withContext Uri.fromFile(file)
+        if (!file.exists()) {
+            val gsRef = storage.child(brochure.file)
+            val task  = gsRef.getFile(file)
 
-        // otherwise download
-        val gsRef = storage.child(brochure.file)
-        val task  = gsRef.getFile(file)
+            task.addOnProgressListener {
+                val pct = it.bytesTransferred.toFloat() / it.totalByteCount.toFloat()
+                onProgress(pct)
+            }.await()   // suspend until done
+        }
 
-        task.addOnProgressListener {
-            val pct = it.bytesTransferred.toFloat() / it.totalByteCount.toFloat()
-            onProgress(pct)
-        }.await()   // suspend until done
-
-        return@withContext Uri.fromFile(file)
+        return@withContext FileProvider.getUriForFile(
+            ctx,
+            "${ctx.packageName}.fileprovider",
+            file
+        )
     }
 }

@@ -42,6 +42,7 @@ import androidx.compose.ui.res.painterResource
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 
+private const val ADMIN_EMAIL = "gokulav2@gmail.com"
 
 /*------------------------------------------------------------*/
 /* ---------------------  LOGIN SCREEN  ----------------------*/
@@ -361,12 +362,21 @@ private fun writeAndRoute(
     onDenied: (String) -> Unit
 ) {
     val alreadyExists = snap.exists()
-    val isWhitelisted = snap.getBoolean("whitelisted") == true
+    val email = (update["email"] as? String).orEmpty()
+    val isAdmin = email.equals(ADMIN_EMAIL, ignoreCase = true)
+    val isWhitelisted = snap.getBoolean("whitelisted") == true || isAdmin
+    val routedUpdate = update.toMutableMap()
+
+    if (isAdmin) {
+        routedUpdate["whitelisted"] = true
+        routedUpdate["role"] = "administrator"
+        routedUpdate["isAdmin"] = true
+    }
 
     when {
         alreadyExists && isWhitelisted -> {
             // ✅ Only update other metadata
-            userDoc.update(update)
+            userDoc.set(routedUpdate, SetOptions.merge())
                 .addOnSuccessListener {
                     navController.navigate("home") {
                         popUpTo("login") { inclusive = true }
@@ -380,7 +390,7 @@ private fun writeAndRoute(
 
         alreadyExists && !isWhitelisted -> {
             // ✅ Only update other metadata, preserve whitelist
-            userDoc.update(update)
+            userDoc.update(routedUpdate)
                 .addOnSuccessListener {
                     onDenied("Access denied – awaiting admin approval.")
                 }
@@ -391,11 +401,22 @@ private fun writeAndRoute(
 
         !alreadyExists -> {
             // ✅ First time only, set whitelisted = false
-            val newUserData = update.toMutableMap()
-            newUserData["whitelisted"] = false
+            val newUserData = routedUpdate.toMutableMap()
+            newUserData["whitelisted"] = isAdmin
+            if (!isAdmin) {
+                newUserData["role"] = "user"
+                newUserData["isAdmin"] = false
+            }
             userDoc.set(newUserData)
                 .addOnSuccessListener {
-                    onDenied("Access denied – awaiting admin approval.")
+                    if (isAdmin) {
+                        navController.navigate("home") {
+                            popUpTo("login") { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    } else {
+                        onDenied("Access denied – awaiting admin approval.")
+                    }
                 }
                 .addOnFailureListener {
                     onDenied("Failed to save user info.")
