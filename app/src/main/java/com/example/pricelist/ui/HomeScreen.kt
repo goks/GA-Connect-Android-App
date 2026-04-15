@@ -39,6 +39,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.compose.rememberAsyncImagePainter
 import com.example.pricelist.BuildConfig
+import com.example.pricelist.ROUTE_ADMIN
 import com.example.pricelist.data.ItemEntity
 import com.example.pricelist.util.AppUpdateInfo
 import com.example.pricelist.util.AppUpdateManager
@@ -49,6 +50,7 @@ import com.example.pricelist.util.StockChangeChecker
 import com.example.pricelist.viewmodel.ItemViewModel
 import com.example.pricelist.viewmodel.ItemViewModelFactory
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.ktx.storage
@@ -58,6 +60,7 @@ import java.io.File
 import java.util.Locale
 
 const val ROUTE_BROCHURES = "brochures"
+private const val ADMIN_EMAIL = "gokulav2@gmail.com"
 
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -77,6 +80,9 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
     var showUpdatePrompt by remember { mutableStateOf(false) }
     var newStockAvailable by remember { mutableStateOf(false) }
     var syncErrorMessage by remember { mutableStateOf<String?>(null) }
+    var isAdmin by remember(user?.uid) {
+        mutableStateOf(user?.email.equals(ADMIN_EMAIL, ignoreCase = true))
+    }
 
     // Stock checker reference
     val stockChecker = remember { StockChangeChecker(context) }
@@ -127,6 +133,22 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                 showUpdatePrompt = true
             }
         }
+    }
+
+    LaunchedEffect(user?.uid) {
+        val uid = user?.uid ?: return@LaunchedEffect
+        FirebaseFirestore.getInstance()
+            .collection("users")
+            .document(uid)
+            .get()
+            .addOnSuccessListener { snap ->
+                isAdmin = snap.getBoolean("isAdmin") == true ||
+                    snap.getString("role") == "administrator" ||
+                    user.email.equals(ADMIN_EMAIL, ignoreCase = true)
+            }
+            .addOnFailureListener {
+                isAdmin = user.email.equals(ADMIN_EMAIL, ignoreCase = true)
+            }
     }
 
     // If first sync hasn't been done yet, start automatic sync once after login
@@ -181,6 +203,15 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                                 navController.navigate("stock_alerts")
                             }
                         )
+                        if (isAdmin) {
+                            DropdownMenuItem(
+                                text = { Text("Administrator") },
+                                onClick = {
+                                    showMenu = false
+                                    navController.navigate(ROUTE_ADMIN)
+                                }
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Settings") },
                             onClick = {
