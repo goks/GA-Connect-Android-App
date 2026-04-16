@@ -24,7 +24,7 @@ android {
             def keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
             storeFile keystorePath ? file(keystorePath) : file("../my-release-key.jks")
             storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: "your-store-password"
-            keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "your-key-alias"
+            keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "ga-connect"
             keyPassword System.getenv("ANDROID_KEY_PASSWORD") ?: "your-key-password"
         }
     }
