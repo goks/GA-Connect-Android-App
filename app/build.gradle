@@ -21,11 +21,19 @@ android {
     }
     signingConfigs {
         release {
+            // Load local.properties
+            def localProperties = new Properties()
+            def localPropertiesFile = rootProject.file('local.properties')
+            if (localPropertiesFile.exists()) {
+                localPropertiesFile.withInputStream { localProperties.load(it) }
+            }
+
             def keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
             storeFile keystorePath ? file(keystorePath) : file("../my-release-key.jks")
-            storePassword project.findProperty("RELEASE_STORE_PASSWORD") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
-            keyAlias project.findProperty("RELEASE_KEY_ALIAS") ?: System.getenv("ANDROID_KEY_ALIAS") ?: "ga-connect"
-            keyPassword project.findProperty("RELEASE_KEY_PASSWORD") ?: System.getenv("ANDROID_KEY_PASSWORD")
+            
+            storePassword localProperties.getProperty("RELEASE_STORE_PASSWORD") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias localProperties.getProperty("RELEASE_KEY_ALIAS") ?: System.getenv("ANDROID_KEY_ALIAS") ?: "ga-connect"
+            keyPassword localProperties.getProperty("RELEASE_KEY_PASSWORD") ?: System.getenv("ANDROID_KEY_PASSWORD")
         }
     }
 
