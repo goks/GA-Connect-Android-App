@@ -23,13 +23,16 @@ android {
         release {
             def keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
             storeFile keystorePath ? file(keystorePath) : file("../my-release-key.jks")
-            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: "your-store-password"
-            keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "ga-connect"
-            keyPassword System.getenv("ANDROID_KEY_PASSWORD") ?: "your-key-password"
+            storePassword project.findProperty("RELEASE_STORE_PASSWORD") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias project.findProperty("RELEASE_KEY_ALIAS") ?: System.getenv("ANDROID_KEY_ALIAS") ?: "ga-connect"
+            keyPassword project.findProperty("RELEASE_KEY_PASSWORD") ?: System.getenv("ANDROID_KEY_PASSWORD")
         }
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.release
+        }
         release {
             minifyEnabled false
             shrinkResources false

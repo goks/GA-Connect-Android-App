@@ -66,6 +66,16 @@ fun LoginScreen(navController: NavController) {
     val db = FirebaseFirestore.getInstance()
     val fusedClient = remember { LocationServices.getFusedLocationProviderClient(context) }
 
+    val currentSHA1 = remember { getSigningCertificateSHA1(context) }
+    LaunchedEffect(Unit) {
+        Log.d("LoginDebug", "--------------------------------------")
+        Log.d("LoginDebug", "DEBUG INFO FOR ERROR 10:")
+        Log.d("LoginDebug", "Package Name: ${context.packageName}")
+        Log.d("LoginDebug", "Current SHA-1: $currentSHA1")
+        Log.d("LoginDebug", "Client ID used: $clientId")
+        Log.d("LoginDebug", "--------------------------------------")
+    }
+
     var loading by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
 
@@ -99,7 +109,10 @@ fun LoginScreen(navController: NavController) {
                 }
             }
         } catch (e: Exception) {
-            errorText = "Sign-in error: ${e.message}"
+            val statusCode = (e as? ApiException)?.statusCode
+            val debugMsg = "Sign-in error (Code: $statusCode): ${e.message}\nApp SHA-1: $currentSHA1"
+            Log.e("LoginScreen", debugMsg, e)
+            errorText = debugMsg
             loading = false
         }
     }
