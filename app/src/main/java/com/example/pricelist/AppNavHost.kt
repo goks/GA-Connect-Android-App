@@ -1,6 +1,8 @@
 package com.example.pricelist
 
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.NavHost
@@ -13,6 +15,9 @@ import com.example.pricelist.ui.HomeScreen
 import com.example.pricelist.ui.LoginScreen
 import com.example.pricelist.ui.StockAlertsScreen
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 
 const val ROUTE_BROCHURES = "brochures"
 const val ROUTE_ADMIN = "admin"
@@ -21,6 +26,40 @@ const val ROUTE_ADMIN = "admin"
 fun AppNavHost(startStockAlerts: Boolean = false) {
     val navController = rememberNavController()
     val auth = FirebaseAuth.getInstance()
+
+    // Automatic Blacklist Check
+    DisposableEffect(auth.currentUser) {
+        val user = auth.currentUser
+        var listener: com.google.firebase.firestore.ListenerRegistration? = null
+        
+        if (user != null) {
+            listener = FirebaseFirestore.getInstance().collection("users")
+                .document(user.uid)
+                .addSnapshotListener { snapshot, _ ->
+                    if (snapshot != null && snapshot.exists()) {
+                        val whitelisted = snapshot.getBoolean("whitelisted") ?: true
+                        if (!whitelisted) {
+                            auth.signOut()
+                            // Aggressively clear Google Sign In cache
+                            val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build()
+                            val gClient = GoogleSignIn.getClient(navController.context, gso)
+                            gClient.revokeAccess().addOnCompleteListener {
+                                gClient.signOut()
+                            }
+                            
+                            navController.navigate("login") {
+                                popUpTo(0) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                }
+        }
+        
+        onDispose {
+            listener?.remove()
+        }
+    }
     val startDestination = when {
         auth.currentUser == null -> "login"
         startStockAlerts -> "stock_alerts"

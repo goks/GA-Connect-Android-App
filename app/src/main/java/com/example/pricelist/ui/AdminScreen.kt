@@ -6,42 +6,27 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Mouse
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.pricelist.data.Brochure
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -66,7 +51,20 @@ private data class UserActivity(
     val lastLogin: Long,
     val last30Days: List<String>,
     val device: String,
-    val androidVer: String
+    val androidVer: String,
+    val appVersion: String,
+    val dailyStats: List<DailyStats> = emptyList()
+)
+
+private data class DailyStats(
+    val date: String,
+    val searchCount: Long,
+    val totalClicks: Long,
+    val lastActive: Long,
+    val latitude: Double,
+    val longitude: Double,
+    val appVersion: String,
+    val buttonClicks: Map<String, Long> = emptyMap()
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -83,7 +81,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var loadingUsers by remember { mutableStateOf(true) }
     var users by remember { mutableStateOf<List<UserActivity>>(emptyList()) }
     var statusText by remember { mutableStateOf<String?>(null) }
-    var selectedTab by remember { mutableStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(0) }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileName by remember { mutableStateOf("") }
     var brochureName by remember { mutableStateOf("") }
@@ -96,11 +94,38 @@ fun AdminScreen(onBack: () -> Unit) {
 
     fun loadUsers() {
         loadingUsers = true
-        db.collection("users")
-            .orderBy("lastLogin", Query.Direction.DESCENDING)
-            .get()
-            .addOnSuccessListener { result ->
-                users = result.documents.map { doc ->
+        scope.launch {
+            try {
+                val result = db.collection("users")
+                    .orderBy("lastLogin", Query.Direction.DESCENDING)
+                    .get()
+                    .await()
+
+                val userList = result.documents.map { doc ->
+                    // Fetch daily stats for each user
+                    val statsResult = db.collection("usage_logs")
+                        .document(doc.id)
+                        .collection("daily_stats")
+                        .orderBy("last_active", Query.Direction.DESCENDING)
+                        .limit(7) // Show last 7 days of activity
+                        .get()
+                        .await()
+
+                    val dailyStats = statsResult.documents.map { sDoc ->
+                        DailyStats(
+                            date = sDoc.getString("date") ?: sDoc.id,
+                            searchCount = sDoc.getLong("search_count") ?: 0L,
+                            totalClicks = sDoc.getLong("total_clicks") ?: 0L,
+                            lastActive = sDoc.getTimestamp("last_active")?.toDate()?.time ?: 0L,
+                            latitude = sDoc.getDouble("latitude") ?: 0.0,
+                            longitude = sDoc.getDouble("longitude") ?: 0.0,
+                            appVersion = sDoc.getString("appVersion").orEmpty(),
+                            buttonClicks = (sDoc.get("button_clicks") as? Map<*, *>)
+                                ?.map { it.key.toString() to (it.value as? Long ?: 0L) }
+                                ?.toMap().orEmpty()
+                        )
+                    }
+
                     UserActivity(
                         id = doc.id,
                         name = doc.getString("name").orEmpty(),
@@ -113,15 +138,18 @@ fun AdminScreen(onBack: () -> Unit) {
                             ?.sortedDescending()
                             .orEmpty(),
                         device = doc.getString("device").orEmpty(),
-                        androidVer = doc.getString("androidVer").orEmpty()
+                        androidVer = doc.getString("androidVer").orEmpty(),
+                        appVersion = doc.getString("appVersion").orEmpty(),
+                        dailyStats = dailyStats
                     )
                 }
+                users = userList
+            } catch (e: Exception) {
+                statusText = "Could not load users: ${e.message}"
+            } finally {
                 loadingUsers = false
             }
-            .addOnFailureListener {
-                statusText = "Could not load users: ${it.message}"
-                loadingUsers = false
-            }
+        }
     }
 
     fun clearBrochureForm() {
@@ -276,7 +304,21 @@ fun AdminScreen(onBack: () -> Unit) {
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(users, key = { it.id }) { user ->
-                            UserActivityCard(user, dateFormat)
+                            UserActivityCard(user, dateFormat) { userId, isWhitelisted ->
+                                scope.launch {
+                                    try {
+                                        db.collection("users").document(userId)
+                                            .update("whitelisted", isWhitelisted)
+                                            .await()
+                                        users = users.map {
+                                            if (it.id == userId) it.copy(whitelisted = isWhitelisted) else it
+                                        }
+                                        statusText = "User ${user.email} ${if (isWhitelisted) "whitelisted" else "restricted"}"
+                                    } catch (e: Exception) {
+                                        statusText = "Whitelist update failed: ${e.message}"
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -475,42 +517,168 @@ fun AdminScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun UserActivityCard(user: UserActivity, dateFormat: SimpleDateFormat) {
+private fun UserActivityCard(
+    user: UserActivity,
+    dateFormat: SimpleDateFormat,
+    onToggleWhitelist: (String, Boolean) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors = CardDefaults.cardColors(
+            containerColor = if (user.whitelisted)
+                MaterialTheme.colorScheme.surfaceVariant
+            else
+                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+        )
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(user.name.ifBlank { "Unnamed user" }, fontWeight = FontWeight.SemiBold)
-            Text(user.email, style = MaterialTheme.typography.bodyMedium)
+        Column(Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        user.name.ifBlank { "Unnamed user" },
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(user.email, style = MaterialTheme.typography.bodySmall)
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            if (user.whitelisted) "Whitelisted" else "Restricted",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (user.whitelisted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        )
+                        Switch(
+                            checked = user.whitelisted,
+                            onCheckedChange = { onToggleWhitelist(user.id, it) },
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+
+                    IconButton(onClick = { expanded = !expanded }) {
+                        Icon(
+                            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = "Expand details"
+                        )
+                    }
+                }
+            }
+
             Text(
-                "Last login: ${if (user.lastLogin > 0) dateFormat.format(Date(user.lastLogin)) else "Not logged"}",
-                style = MaterialTheme.typography.bodySmall
+                "Last Active: ${if (user.lastLogin > 0) dateFormat.format(Date(user.lastLogin)) else "Never"}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Text(
-                "Access: ${if (user.whitelisted) "Whitelisted" else "Pending"} ${user.role.ifBlank { "" }}",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                "Last 30 days usage: ${user.last30Days.size} login(s)",
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Medium
-            )
-            user.last30Days.take(5).forEach { login ->
+
+            AnimatedVisibility(visible = expanded) {
+                Column(
+                    modifier = Modifier.padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    HorizontalDivider(
+                        thickness = 0.5.dp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                    )
+
+                    // Device Info
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Info, "", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Device: ${user.device} (Android ${user.androidVer}) | App: ${user.appVersion}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+
+                    if (user.dailyStats.isNotEmpty()) {
+                        Text(
+                            "Recent Usage Stats",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        user.dailyStats.forEach { stats ->
+                            DailyStatsItem(stats, dateFormat)
+                        }
+                    } else {
+                        Text(
+                            "No detailed usage logs found.",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DailyStatsItem(stats: DailyStats, dateFormat: SimpleDateFormat) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
+        border = CardDefaults.outlinedCardBorder()
+    ) {
+        Column(Modifier.padding(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Text(
-                    "- $login",
+                    stats.date.replace("_", "/"),
+                    fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.bodySmall
                 )
-            }
-            if (user.device.isNotBlank() || user.androidVer.isNotBlank()) {
                 Text(
-                    "Device: ${user.device} Android ${user.androidVer}",
-                    style = MaterialTheme.typography.bodySmall
+                    "Last activity: ${dateFormat.format(Date(stats.lastActive))}${if (stats.appVersion.isNotEmpty()) " (v${stats.appVersion})" else ""}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 10.sp
+                )
+            }
+
+            Spacer(Modifier.height(4.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                StatChip(Icons.Default.Search, "${stats.searchCount} Searches")
+                StatChip(Icons.Default.Mouse, "${stats.totalClicks} Clicks")
+                if (stats.latitude != 0.0) {
+                    StatChip(Icons.Default.LocationOn, "Location Logged")
+                }
+            }
+
+            if (stats.buttonClicks.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Clicks: " + stats.buttonClicks.entries.joinToString(", ") { "${it.key}: ${it.value}" },
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun StatChip(icon: ImageVector, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.secondary)
+        Spacer(Modifier.width(4.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, fontSize = 11.sp)
     }
 }
 

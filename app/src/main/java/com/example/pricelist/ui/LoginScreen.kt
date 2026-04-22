@@ -99,6 +99,7 @@ fun LoginScreen(navController: NavController) {
                                 errorText = msg
                                 loading = false
                                 auth.signOut()
+                                gClient.revokeAccess()
                                 gClient.signOut()
                             }
                         )
@@ -119,26 +120,8 @@ fun LoginScreen(navController: NavController) {
 
     LaunchedEffect(locPerm.status) {
         if (locPerm.status.isGranted && !loading && auth.currentUser == null) {
-            loading = true
-            // Ensure Google Play Services are available before attempting sign-in
-            val gpaStatus = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context)
-            if (gpaStatus != ConnectionResult.SUCCESS) {
-                Log.e("LoginScreen", "Play Services not available: $gpaStatus")
-                errorText = "Google Play Services not available or out of date. Please update Google Play Services."
-                loading = false
-            } else {
-                try {
-                    startSignIn(context, launcher, clientId)
-                } catch (e: SecurityException) {
-                    Log.e("LoginScreen", "SecurityException during startSignIn", e)
-                    errorText = "Google sign-in failed: security error. Please ensure Google Play Services is available and the app is configured correctly (package name / SHA-1)."
-                    loading = false
-                } catch (e: Exception) {
-                    Log.e("LoginScreen", "Error during startSignIn", e)
-                    errorText = "Google sign-in failed: ${e.message}"
-                    loading = false
-                }
-            }
+            // Removed automatic startSignIn to prevent sign-in loops after logout.
+            // Sign-in should only be triggered by the user clicking the button.
         }
     }
 
@@ -345,7 +328,8 @@ private fun handleUserLogin(
             "lastLogin"    to now,
             "last30Days"   to FieldValue.arrayUnion(readable),
             "device"       to "${Build.MANUFACTURER} ${Build.MODEL}",
-            "androidVer"   to Build.VERSION.RELEASE
+            "androidVer"   to Build.VERSION.RELEASE,
+            "appVersion"   to com.example.pricelist.BuildConfig.VERSION_NAME
         )
 
         /* --- add location if we already have permission --- */
