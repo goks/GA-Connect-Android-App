@@ -11,12 +11,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.example.pricelist.ui.theme.PriceListTheme
+import com.example.pricelist.util.AnalyticsManager
 
 class MainActivity : ComponentActivity() {
     private var openStockAlerts: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Initialize Analytics
+        AnalyticsManager.initialize(this)
+        AnalyticsManager.logSessionStart(this)
 
         // Request notification permission if needed
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

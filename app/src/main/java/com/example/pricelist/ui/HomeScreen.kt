@@ -41,6 +41,7 @@ import coil.compose.rememberAsyncImagePainter
 import com.example.pricelist.BuildConfig
 import com.example.pricelist.ROUTE_ADMIN
 import com.example.pricelist.data.ItemEntity
+import com.example.pricelist.util.AnalyticsManager
 import com.example.pricelist.util.AppUpdateInfo
 import com.example.pricelist.util.AppUpdateManager
 import com.example.pricelist.util.AppPrefs
@@ -192,6 +193,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                         DropdownMenuItem(
                             text = { Text("Download Brochures") },
                             onClick = {
+                                AnalyticsManager.logButtonClick("menu_brochures")
                                 showMenu = false
                                 navController.navigate(ROUTE_BROCHURES)
                             }
@@ -199,6 +201,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                         DropdownMenuItem(
                             text = { Text("View Stock Alerts") },
                             onClick = {
+                                AnalyticsManager.logButtonClick("menu_stock_alerts")
                                 showMenu = false
                                 navController.navigate("stock_alerts")
                             }
@@ -207,6 +210,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                             DropdownMenuItem(
                                 text = { Text("Administrator") },
                                 onClick = {
+                                    AnalyticsManager.logButtonClick("menu_admin")
                                     showMenu = false
                                     navController.navigate(ROUTE_ADMIN)
                                 }
@@ -215,6 +219,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                         DropdownMenuItem(
                             text = { Text("Settings") },
                             onClick = {
+                                AnalyticsManager.logButtonClick("menu_settings")
                                 showMenu = false
                                 showSettings = true
                             }
@@ -222,6 +227,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                         DropdownMenuItem(
                             text = { Text("Sign out") },
                             onClick = {
+                                AnalyticsManager.logButtonClick("menu_signout")
                                 FirebaseAuth.getInstance().signOut()
                                 navController.navigate("login") {
                                     popUpTo("home") { inclusive = true }
@@ -244,6 +250,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                         value = query,
                         onValueChange = {
                             viewModel.onSearchChanged(it)
+                            AnalyticsManager.logSearch(it)
                         },
                         label = { Text("Search items…") },
                         modifier = Modifier.fillMaxWidth()
