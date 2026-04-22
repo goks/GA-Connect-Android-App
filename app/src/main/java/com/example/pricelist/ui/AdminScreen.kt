@@ -52,6 +52,7 @@ private data class UserActivity(
     val last30Days: List<String>,
     val device: String,
     val androidVer: String,
+    val appVersion: String,
     val dailyStats: List<DailyStats> = emptyList()
 )
 
@@ -62,6 +63,7 @@ private data class DailyStats(
     val lastActive: Long,
     val latitude: Double,
     val longitude: Double,
+    val appVersion: String,
     val buttonClicks: Map<String, Long> = emptyMap()
 )
 
@@ -117,6 +119,7 @@ fun AdminScreen(onBack: () -> Unit) {
                             lastActive = sDoc.getTimestamp("last_active")?.toDate()?.time ?: 0L,
                             latitude = sDoc.getDouble("latitude") ?: 0.0,
                             longitude = sDoc.getDouble("longitude") ?: 0.0,
+                            appVersion = sDoc.getString("appVersion").orEmpty(),
                             buttonClicks = (sDoc.get("button_clicks") as? Map<*, *>)
                                 ?.map { it.key.toString() to (it.value as? Long ?: 0L) }
                                 ?.toMap().orEmpty()
@@ -136,6 +139,7 @@ fun AdminScreen(onBack: () -> Unit) {
                             .orEmpty(),
                         device = doc.getString("device").orEmpty(),
                         androidVer = doc.getString("androidVer").orEmpty(),
+                        appVersion = doc.getString("appVersion").orEmpty(),
                         dailyStats = dailyStats
                     )
                 }
@@ -590,7 +594,7 @@ private fun UserActivityCard(
                         Icon(Icons.Default.Info, "", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Device: ${user.device} (Android ${user.androidVer})",
+                            "Device: ${user.device} (Android ${user.androidVer}) | App: ${user.appVersion}",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
@@ -637,7 +641,7 @@ private fun DailyStatsItem(stats: DailyStats, dateFormat: SimpleDateFormat) {
                     style = MaterialTheme.typography.bodySmall
                 )
                 Text(
-                    "Last activity: ${dateFormat.format(Date(stats.lastActive))}",
+                    "Last activity: ${dateFormat.format(Date(stats.lastActive))}${if (stats.appVersion.isNotEmpty()) " (v${stats.appVersion})" else ""}",
                     style = MaterialTheme.typography.labelSmall,
                     fontSize = 10.sp
                 )

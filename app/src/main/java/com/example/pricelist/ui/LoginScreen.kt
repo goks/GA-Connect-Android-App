@@ -328,7 +328,8 @@ private fun handleUserLogin(
             "lastLogin"    to now,
             "last30Days"   to FieldValue.arrayUnion(readable),
             "device"       to "${Build.MANUFACTURER} ${Build.MODEL}",
-            "androidVer"   to Build.VERSION.RELEASE
+            "androidVer"   to Build.VERSION.RELEASE,
+            "appVersion"   to com.example.pricelist.BuildConfig.VERSION_NAME
         )
 
         /* --- add location if we already have permission --- */

@@ -22,8 +22,10 @@ object AnalyticsManager {
 
     fun initialize(context: Context) {
         firebaseAnalytics = FirebaseAnalytics.getInstance(context)
-        FirebaseAuth.getInstance().currentUser?.uid?.let { uid ->
-            firebaseAnalytics?.setUserId(uid)
+        FirebaseAuth.getInstance().currentUser?.let { user ->
+            firebaseAnalytics?.setUserId(user.uid)
+            firebaseAnalytics?.setUserProperty("app_version", com.example.pricelist.BuildConfig.VERSION_NAME)
+            firebaseAnalytics?.setUserProperty("user_email", user.email)
         }
     }
 
