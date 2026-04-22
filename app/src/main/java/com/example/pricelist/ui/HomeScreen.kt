@@ -58,6 +58,8 @@ import com.google.firebase.storage.ktx.storage
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.io.File
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
 import java.util.Locale
 
 const val ROUTE_BROCHURES = "brochures"
@@ -106,7 +108,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
 
     var hasAutoScrolled by remember { mutableStateOf(false) }
     // Remove animation state
-    var redrawTrigger by remember { mutableStateOf(0) }
+    var redrawTrigger by remember { mutableIntStateOf(0) }
     // Auto-sync guard to avoid multiple automatic sync attempts
     var autoSyncStarted by remember { mutableStateOf(false) }
 
@@ -312,7 +314,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
 
                                             // Also check for stock changes after sync
                                             if (success && NotificationPermissionUtil.checkNotificationPermission(context)) {
-                                                stockChecker.checkForNewStock { hasNewStock ->
+                                                stockChecker.checkForNewStock { _ ->
                                                     newStockAvailable = false
                                                 }
                                             }
@@ -351,7 +353,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                     }
                 }
 
-                items(items) { item ->
+                items(items, key = { it.MasterCode }) { item ->
                     val highlight = highlightMasterCode != null && item.MasterCode == highlightMasterCode
                     // Remove animation parameter and use redraw trigger to force recomposition
                     ItemCard(item, alertMasterCodes.contains(item.MasterCode), highlight, redrawTrigger) { selectedItem = it }
@@ -558,15 +560,22 @@ fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolea
         label = "cardHighlightAnimation"
     )
 
-    var showTaxBreakdown by remember { mutableStateOf(false) }
-    var showUnitPriceDialog by remember { mutableStateOf(false) }
+    var showTaxBreakdown by remember(item.MasterCode) { mutableStateOf(false) }
+    var showUnitPriceDialog by remember(item.MasterCode) { mutableStateOf(false) }
     val taxPercent = item.TaxPercent
-    val salePrice = item.PRICE3
-    val taxPrice = salePrice * taxPercent / 100.0
-    val totalPrice = salePrice + taxPrice
-    val salePriceFormatted = String.format(Locale.getDefault(), "%.2f", salePrice)
-    val taxPriceFormatted = String.format(Locale.getDefault(), "%.2f", taxPrice)
-    val totalPriceFormatted = String.format(Locale.getDefault(), "%.2f", totalPrice)
+    val discountPercent = item.DiscPercent
+    val basePrice = item.PRICE3
+    
+    // Total price = SalePrice - Discount% + Tax%
+    val discountAmount = basePrice * (discountPercent / 100.0)
+    val priceAfterDiscount = basePrice - discountAmount
+    val taxAmount = priceAfterDiscount * (taxPercent / 100.0)
+    val totalPrice = priceAfterDiscount + taxAmount
+    
+    val salePriceFormatted = formatAmount(basePrice)
+    val discountAmountFormatted = formatAmount(discountAmount)
+    val taxPriceFormatted = formatAmount(taxAmount)
+    val totalPriceFormatted = formatAmount(totalPrice)
 
     // Use redrawTrigger to avoid it being reported as unused; no-op side effect
     LaunchedEffect(redrawTrigger) { /* no-op: used to trigger recomposition */ }
@@ -654,7 +663,7 @@ fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolea
                         shadowElevation = 1.dp
                     ) {
                         Text(
-                            text = "GST ${taxPercent.toInt()}%",
+                            text = "GST ${formatAmount(taxPercent)}%",
                             color = if (showTaxBreakdown) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
@@ -671,21 +680,48 @@ fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolea
                             .fillMaxWidth()
                             .padding(top = 6.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            PriceBreakdownText("Sale", "₹$salePriceFormatted", Modifier.weight(1f))
-                            PriceBreakdownText("GST", "₹$taxPriceFormatted", Modifier.weight(1f))
-                            PriceBreakdownText(
-                                label = "Total",
-                                value = "₹$totalPriceFormatted",
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable { showUnitPriceDialog = true },
-                                emphasize = true,
-                                helper = "Calculate"
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                PriceBreakdownText("Sale", "₹$salePriceFormatted", Modifier.weight(1f))
+                                if (discountPercent > 0) {
+                                    PriceBreakdownText("Disc (${formatAmount(discountPercent)}%)", "-₹$discountAmountFormatted", Modifier.weight(1f))
+                                }
+                                PriceBreakdownText("GST (${formatAmount(taxPercent)}%)", "₹$taxPriceFormatted", Modifier.weight(1f))
+                            }
+                            
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 8.dp),
+                                thickness = 0.5.dp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                            )
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Total Payable",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "₹$totalPriceFormatted",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.clickable { showUnitPriceDialog = true }
+                                )
+                            }
+                            Text(
+                                "Tap price to calculate unit/bulk price",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.align(Alignment.End)
                             )
                         }
                     }
@@ -752,8 +788,8 @@ private fun UnitPriceDialog(
         operation == UnitPriceOperation.Divide -> totalPrice / factor
         else -> totalPrice * factor
     }
-    val totalPriceFormatted = String.format(Locale.getDefault(), "%.2f", totalPrice)
-    val resultFormatted = result?.let { String.format(Locale.getDefault(), "%.2f", it) }
+    val totalPriceFormatted = formatAmount(totalPrice)
+    val resultFormatted = result?.let { formatAmount(it) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -833,12 +869,18 @@ fun DiscountBadge(percent: Double) {
         modifier = Modifier.padding(top = 6.dp)
     ) {
         Text(
-            text = "DISCOUNT ${percent.toInt()}%",
+            text = "DISCOUNT ${formatAmount(percent)}%",
             color = Color.White,
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
         )
     }
+}
+
+private fun formatAmount(value: Double): String {
+    val symbols = DecimalFormatSymbols(Locale.US)
+    val df = DecimalFormat("#.##", symbols)
+    return df.format(value)
 }
 
 @Composable
@@ -849,9 +891,9 @@ fun ImageZoomDialog(
     imageH: Int,
     onDismiss: () -> Unit
 ) {
-    var scale by remember { mutableStateOf(1f) }
-    var offsetX by remember { mutableStateOf(0f) }
-    var offsetY by remember { mutableStateOf(0f) }
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
 
     val aspectRatio = imageW.toFloat() / imageH.coerceAtLeast(1)
 
