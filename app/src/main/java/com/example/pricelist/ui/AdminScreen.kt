@@ -300,7 +300,21 @@ fun AdminScreen(onBack: () -> Unit) {
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(users, key = { it.id }) { user ->
-                            UserActivityCard(user, dateFormat)
+                            UserActivityCard(user, dateFormat) { userId, isWhitelisted ->
+                                scope.launch {
+                                    try {
+                                        db.collection("users").document(userId)
+                                            .update("whitelisted", isWhitelisted)
+                                            .await()
+                                        users = users.map {
+                                            if (it.id == userId) it.copy(whitelisted = isWhitelisted) else it
+                                        }
+                                        statusText = "User ${user.email} ${if (isWhitelisted) "whitelisted" else "restricted"}"
+                                    } catch (e: Exception) {
+                                        statusText = "Whitelist update failed: ${e.message}"
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -499,14 +513,23 @@ fun AdminScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun UserActivityCard(user: UserActivity, dateFormat: SimpleDateFormat) {
+private fun UserActivityCard(
+    user: UserActivity,
+    dateFormat: SimpleDateFormat,
+    onToggleWhitelist: (String, Boolean) -> Unit
+) {
     var expanded by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors = CardDefaults.cardColors(
+            containerColor = if (user.whitelisted)
+                MaterialTheme.colorScheme.surfaceVariant
+            else
+                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+        )
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(
@@ -522,11 +545,27 @@ private fun UserActivityCard(user: UserActivity, dateFormat: SimpleDateFormat) {
                     )
                     Text(user.email, style = MaterialTheme.typography.bodySmall)
                 }
-                IconButton(onClick = { expanded = !expanded }) {
-                    Icon(
-                        if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = "Expand details"
-                    )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            if (user.whitelisted) "Whitelisted" else "Restricted",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (user.whitelisted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        )
+                        Switch(
+                            checked = user.whitelisted,
+                            onCheckedChange = { onToggleWhitelist(user.id, it) },
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+
+                    IconButton(onClick = { expanded = !expanded }) {
+                        Icon(
+                            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = "Expand details"
+                        )
+                    }
                 }
             }
 
