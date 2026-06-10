@@ -33,6 +33,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -86,6 +87,9 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
     var isAdmin by remember(user?.uid) {
         mutableStateOf(user?.email.equals(ADMIN_EMAIL, ignoreCase = true))
     }
+    var showMultiplePrices by remember { mutableStateOf(AppPrefs.isShowMultiplePricesEnabled(context)) }
+    var showPurchasePrice by remember { mutableStateOf(AppPrefs.isShowPurchasePriceEnabled(context)) }
+    var showStock by remember { mutableStateOf(AppPrefs.isShowStockEnabled(context)) }
 
     // Stock checker reference
     val stockChecker = remember { StockChangeChecker(context) }
@@ -160,7 +164,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
         if (!autoSyncStarted && items.isEmpty()) {
             autoSyncStarted = true
             syncing = true
-            viewModel.syncNow(context) { success, errorMessage ->
+            viewModel.syncNow(context, isAdmin) { success, errorMessage ->
                 syncing = false
                 if (success) {
                     // Persist first-sync and last sync time so the UI won't prompt again
@@ -268,7 +272,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                 item {
                     val isSearching = query.isNotBlank()
 
-                    if (!firstSyncDone.value && !isSearching && items.isEmpty()) {
+                            if (!firstSyncDone.value && !isSearching && items.isEmpty()) {
                         if (syncing) {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                             Spacer(Modifier.height(8.dp))
@@ -276,7 +280,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                             Button(
                                 onClick = {
                                     syncing = true
-                                    viewModel.syncNow(context) { success, errorMessage ->
+                                    viewModel.syncNow(context, isAdmin) { success, errorMessage ->
                                         syncing = false
                                         if (success) {
                                             AppPrefs.setFirstSyncDone(context, true)
@@ -303,7 +307,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                                 OutlinedButton(
                                     onClick = {
                                         syncing = true
-                                        viewModel.syncNow(context) { success, errorMessage ->
+                                        viewModel.syncNow(context, isAdmin) { success, errorMessage ->
                                             syncing = false
                                             if (success) {
                                                 showUpdatePrompt = false
@@ -356,7 +360,16 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                 items(items, key = { it.MasterCode }) { item ->
                     val highlight = highlightMasterCode != null && item.MasterCode == highlightMasterCode
                     // Remove animation parameter and use redraw trigger to force recomposition
-                    ItemCard(item, alertMasterCodes.contains(item.MasterCode), highlight, redrawTrigger) { selectedItem = it }
+                    ItemCard(
+                        item = item,
+                        hasStockAlert = alertMasterCodes.contains(item.MasterCode),
+                        highlight = highlight,
+                        redrawTrigger = redrawTrigger,
+                        showMultiplePrices = showMultiplePrices && isAdmin,
+                        showPurchasePrice = showPurchasePrice && isAdmin,
+                        showStock = showStock,
+                        onImageClick = { selectedItem = it }
+                    )
                 }
 
                 if (items.isEmpty() && query.isNotBlank()) {
@@ -396,7 +409,25 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
     }
 
     if (showSettings) {
-        SettingsDialog(onDismiss = { showSettings = false })
+        SettingsDialog(
+            isAdmin = isAdmin,
+            showMultiplePrices = showMultiplePrices,
+            onMultiplePricesChange = {
+                showMultiplePrices = it
+                AppPrefs.setShowMultiplePricesEnabled(context, it)
+            },
+            showPurchasePrice = showPurchasePrice,
+            onPurchasePriceChange = {
+                showPurchasePrice = it
+                AppPrefs.setShowPurchasePriceEnabled(context, it)
+            },
+            showStock = showStock,
+            onStockChange = {
+                showStock = it
+                AppPrefs.setShowStockEnabled(context, it)
+            },
+            onDismiss = { showSettings = false }
+        )
     }
 
     selectedItem?.let { item ->
@@ -415,7 +446,16 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
 }
 
 @Composable
-private fun SettingsDialog(onDismiss: () -> Unit) {
+private fun SettingsDialog(
+    isAdmin: Boolean,
+    showMultiplePrices: Boolean,
+    onMultiplePricesChange: (Boolean) -> Unit,
+    showPurchasePrice: Boolean,
+    onPurchasePriceChange: (Boolean) -> Unit,
+    showStock: Boolean,
+    onStockChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var checking by remember { mutableStateOf(false) }
@@ -440,6 +480,36 @@ private fun SettingsDialog(onDismiss: () -> Unit) {
                     text = "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                     style = MaterialTheme.typography.bodyMedium
                 )
+
+                HorizontalDivider()
+
+                if (isAdmin) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable { onMultiplePricesChange(!showMultiplePrices) }
+                    ) {
+                        Text("Show multiple prices", modifier = Modifier.weight(1f))
+                        Switch(checked = showMultiplePrices, onCheckedChange = onMultiplePricesChange)
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable { onPurchasePriceChange(!showPurchasePrice) }
+                    ) {
+                        Text("Show purchase price", modifier = Modifier.weight(1f))
+                        Switch(checked = showPurchasePrice, onCheckedChange = onPurchasePriceChange)
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clickable { onStockChange(!showStock) }
+                ) {
+                    Text("Show stock", modifier = Modifier.weight(1f))
+                    Switch(checked = showStock, onCheckedChange = onStockChange)
+                }
+
+                HorizontalDivider()
 
                 Button(
                     onClick = {
@@ -521,7 +591,16 @@ private fun SettingsDialog(onDismiss: () -> Unit) {
 // 🔻 Reusable Composables
 // -----------------------------
 @Composable
-fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolean = false, redrawTrigger: Int = 0, onImageClick: (ItemEntity) -> Unit) {
+fun ItemCard(
+    item: ItemEntity,
+    hasStockAlert: Boolean = false,
+    highlight: Boolean = false,
+    redrawTrigger: Int = 0,
+    showMultiplePrices: Boolean = false,
+    showPurchasePrice: Boolean = false,
+    showStock: Boolean = false,
+    onImageClick: (ItemEntity) -> Unit
+) {
     val context = LocalContext.current
     val localFile = remember(item.MasterCode, item.imageExt) {
         File(context.filesDir, "images/${item.MasterCode}${item.imageExt}")
@@ -625,7 +704,14 @@ fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolea
 
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = item.Name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = item.Name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
                     if (hasStockAlert) {
                         Icon(
                             imageVector = Icons.Default.Notifications,
@@ -644,31 +730,76 @@ fun ItemCard(item: ItemEntity, hasStockAlert: Boolean = false, highlight: Boolea
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
+                        if (showMultiplePrices) {
+                            Column(modifier = Modifier.padding(vertical = 2.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text(
+                                        text = "Tier A: ₹${formatAmount(item.PriceA)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray
+                                    )
+                                    Text(
+                                        text = "Tier B: ₹${formatAmount(item.PriceB)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray
+                                    )
+                                    Text(
+                                        text = "Tier C: ₹${formatAmount(item.PriceC)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray
+                                    )
+                                }
+                            }
+                        }
+                        if (showPurchasePrice) {
+                            Text(
+                                text = "Purchase: ₹${formatAmount(item.PurchasePrice)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        if (showStock) {
+                            Text(
+                                text = "Stock: ${formatAmount(item.Stock)} ${item.Unit}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (item.Stock > 0) Color(0xFF2E7D32) else Color.Red,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                         Text(
-                            text = "Sale ₹$salePriceFormatted",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "Unit: ${item.Unit}",
+                            text = "Unit: ${item.Unit}${if (item.MRP > 0) " | MRP: ₹${formatAmount(item.MRP)}" else ""}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.Gray
+                            color = Color.Gray,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (showTaxBreakdown) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
-                        tonalElevation = 2.dp,
-                        shadowElevation = 1.dp
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
-                            text = "GST ${formatAmount(taxPercent)}%",
-                            color = if (showTaxBreakdown) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            text = "₹$salePriceFormatted",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary
                         )
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (showTaxBreakdown) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
+                            tonalElevation = 2.dp,
+                            shadowElevation = 1.dp
+                        ) {
+                            Text(
+                                text = "GST ${formatAmount(taxPercent)}%",
+                                color = if (showTaxBreakdown) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
                     }
                 }
 
