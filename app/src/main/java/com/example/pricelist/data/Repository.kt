@@ -22,45 +22,28 @@ class Repository(
     /**
      * Sync Firestore → Room and download images **only if they are not already cached**.
      */
-    suspend fun sync(context: Context) {
+    suspend fun sync(context: Context, isAdmin: Boolean) {
         val lastSync = AppPrefs.getLastSyncTime(context)
         val imageDir = File(context.filesDir, "images").apply { mkdirs() }
 
 
-        Log.d("Repository", "Delta sync since: $lastSync")
-        val updatedItems  = firestore
+        Log.d("Repository", "Delta sync since: $lastSync, isAdmin: $isAdmin")
+        val snapshot = firestore
             .collection("items")
             .whereGreaterThan("lastFBUpdate", com.google.firebase.Timestamp(lastSync / 1000, 0))
             .get()
             .await()
-            .documents
-            .mapNotNull { doc ->
-                try {
-                    val data = doc.data ?: return@mapNotNull null
-                    val lastUpdated = (data["lastFBUpdate"] as? com.google.firebase.Timestamp)
-                        ?.toDate()?.time ?: 0L
 
-                    ItemEntity(
-                        Code = data["Code"] as? String ?: "",
-                        DiscPercent = (data["DiscPercent"] as? Number)?.toDouble() ?: 0.0,
-                        MRP = (data["MRP"] as? Number)?.toDouble() ?: 0.0,
-                        MasterCode = data["MasterCode"]?.toString() ?: "",
-                        Name = data["Name"] as? String ?: "",
-                        PRICE3 = (data["PRICE3"] as? Number)?.toDouble() ?: 0.0,
-                        Unit = data["Unit"] as? String ?: "",
-                        imageExt = data["imageExt"] as? String ?: "",
-                        imageH = (data["imageH"] as? Number)?.toInt() ?: 0,
-                        imageW = (data["imageW"] as? Number)?.toInt() ?: 0,
-                        imageYes = data["imageYes"] as? Boolean ?: false,
-                        // Read TaxPercent if present in Firestore
-                        TaxPercent = (data["TaxPercent"] as? Number)?.toDouble() ?: 0.0,
-                        lastFBUpdate = lastUpdated
-                    )
-                } catch (e: Exception) {
-                    Log.e("Repository", "Error parsing document: ${doc.id}", e)
-                    null
-                }
-            }
+        val sensitiveDataMap = if (isAdmin && !snapshot.isEmpty) {
+            val masterCodes = snapshot.documents.map { it.id }
+            fetchSensitiveData(masterCodes)
+        } else {
+            emptyMap()
+        }
+
+        val updatedItems = snapshot.documents.mapNotNull { doc ->
+            parseFirestoreItem(doc, sensitiveDataMap[doc.id])
+        }
 
         Log.d("Repository", "Delta fetched ${updatedItems .size} items")
 
@@ -113,17 +96,68 @@ class Repository(
                     .get()
                     .await()
 
+                val sensitiveDataMap = if (isAdmin && !snapshot.isEmpty) {
+                    fetchSensitiveData(chunk)
+                } else {
+                    emptyMap()
+                }
+
                 val parsed = snapshot.documents.mapNotNull { doc ->
-                    parseFirestoreItem(doc)
+                    parseFirestoreItem(doc, sensitiveDataMap[doc.id])
                 }
                 newItems += parsed
             }
             dao.insertAll(newItems)
         }
+
+        // 5️⃣ Update sensitive fields for existing items if admin
+        if (isAdmin && localItems.isNotEmpty()) {
+            updateAllSensitiveFieldsForAdmin(localItems)
+        }
     }
-    private fun parseFirestoreItem(doc: DocumentSnapshot): ItemEntity? {
+
+    private suspend fun updateAllSensitiveFieldsForAdmin(localItems: List<ItemEntity>) {
+        val masterCodes = localItems.map { it.MasterCode }
+        val chunks = masterCodes.chunked(10)
+        for (chunk in chunks) {
+            val sensitiveDataMap = fetchSensitiveData(chunk)
+            for (masterCode in chunk) {
+                val sensitiveDoc = sensitiveDataMap[masterCode]
+                if (sensitiveDoc != null && sensitiveDoc.exists()) {
+                    val data = sensitiveDoc.data
+                    val pA = (data?.get("PriceA") as? Number)?.toDouble() ?: 0.0
+                    val pB = (data?.get("PriceB") as? Number)?.toDouble() ?: 0.0
+                    val pC = (data?.get("PriceC") as? Number)?.toDouble() ?: 0.0
+                    val pP = (data?.get("PurchasePrice") as? Number)?.toDouble() ?: 0.0
+                    dao.updateSensitiveFields(masterCode, pA, pB, pC, pP)
+                }
+            }
+        }
+    }
+
+    private suspend fun fetchSensitiveData(masterCodes: List<String>): Map<String, DocumentSnapshot> {
+        val result = mutableMapOf<String, DocumentSnapshot>()
+        val chunks = masterCodes.chunked(10)
+        for (chunk in chunks) {
+            try {
+                val sensitiveSnapshot = firestore.collection("sensitive_item_data")
+                    .whereIn(FieldPath.documentId(), chunk)
+                    .get()
+                    .await()
+                for (doc in sensitiveSnapshot.documents) {
+                    result[doc.id] = doc
+                }
+            } catch (e: Exception) {
+                Log.e("Repository", "Error fetching sensitive data for chunk: $chunk", e)
+            }
+        }
+        return result
+    }
+
+    private fun parseFirestoreItem(doc: DocumentSnapshot, sensitiveDoc: DocumentSnapshot? = null): ItemEntity? {
         return try {
             val data = doc.data ?: return null
+            val sensitiveData = sensitiveDoc?.data
             val lastUpdated = (data["lastFBUpdate"] as? com.google.firebase.Timestamp)
                 ?.toDate()?.time ?: 0L
 
@@ -133,7 +167,11 @@ class Repository(
                 MRP = (data["MRP"] as? Number)?.toDouble() ?: 0.0,
                 MasterCode = data["MasterCode"]?.toString() ?: "",
                 Name = data["Name"] as? String ?: "",
+                PriceA = (sensitiveData?.get("PriceA") as? Number)?.toDouble() ?: 0.0,
+                PriceB = (sensitiveData?.get("PriceB") as? Number)?.toDouble() ?: 0.0,
+                PriceC = (sensitiveData?.get("PriceC") as? Number)?.toDouble() ?: 0.0,
                 PRICE3 = (data["PRICE3"] as? Number)?.toDouble() ?: 0.0,
+                PurchasePrice = (sensitiveData?.get("PurchasePrice") as? Number)?.toDouble() ?: 0.0,
                 Unit = data["Unit"] as? String ?: "",
                 imageExt = data["imageExt"] as? String ?: "",
                 imageH = (data["imageH"] as? Number)?.toInt() ?: 0,
@@ -141,6 +179,7 @@ class Repository(
                 imageYes = data["imageYes"] as? Boolean ?: false,
                 // Read TaxPercent when parsing individual items
                 TaxPercent = (data["TaxPercent"] as? Number)?.toDouble() ?: 0.0,
+                Stock = (data["Stock"] as? Number)?.toDouble() ?: 0.0,
                 lastFBUpdate = lastUpdated
             )
         } catch (e: Exception) {

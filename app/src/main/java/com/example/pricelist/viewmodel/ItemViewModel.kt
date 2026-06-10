@@ -40,6 +40,7 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
     /* ---------------------------------------------------- */
     fun syncNow(
         context: Context,
+        isAdmin: Boolean,
         onComplete: (success: Boolean, errorMessage: String?) -> Unit
     ) {
         viewModelScope.launch {
@@ -49,7 +50,7 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
 
             try {
                 withTimeout(15_000L) {
-                    repo.sync(context)
+                    repo.sync(context, isAdmin)
                     _itemsFlow.value = repo.getAll()
                     ok = true
 

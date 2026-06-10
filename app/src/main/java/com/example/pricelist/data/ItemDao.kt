@@ -31,5 +31,8 @@ interface ItemDao {
     @Query("DELETE FROM items WHERE MasterCode IN (:codes)")
     suspend fun deleteByMasterCodes(codes: List<String>)
 
+    @Query("UPDATE items SET PriceA = :priceA, PriceB = :priceB, PriceC = :priceC, PurchasePrice = :purchasePrice WHERE MasterCode = :masterCode")
+    suspend fun updateSensitiveFields(masterCode: String, priceA: Double, priceB: Double, priceC: Double, purchasePrice: Double)
+
 }
 
