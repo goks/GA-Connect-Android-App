@@ -49,7 +49,9 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
             var errorMsg: String? = null
 
             try {
-                withTimeout(15_000L) {
+                // Phase 1: Metadata and Changed Items Sync
+                // We keep a reasonable timeout here, but Phase 1 is much lighter now.
+                withTimeout(120_000L) {
                     repo.sync(context, isAdmin)
                     _itemsFlow.value = repo.getAll()
                     ok = true
@@ -60,8 +62,23 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
                             .putLong("lastSyncedTime", System.currentTimeMillis())
                     }
                 }
+                
+                // Phase 2: Background Enrichment for Admins
+                // This happens AFTER Phase 1 is successful and reported to the user.
+                if (ok) {
+                    launch {
+                        try {
+                            repo.enrichSensitiveDataInBackground(isAdmin)
+                            // Update items flow one last time to reflect enriched data
+                            _itemsFlow.value = repo.getAll()
+                        } catch (e: Exception) {
+                            Log.e("SyncNow", "Background enrichment failed", e)
+                        }
+                    }
+                }
+
             } catch (t: TimeoutCancellationException) {
-                Log.e("SyncNow", "Sync timed‑out (15 s)")
+                Log.e("SyncNow", "Sync timed-out (120s)")
                 errorMsg = "Sync timed out"
             } catch (e: Exception) {
                 Log.e("SyncNow", "Sync error", e)

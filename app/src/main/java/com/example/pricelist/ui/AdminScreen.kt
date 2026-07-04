@@ -22,6 +22,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -47,6 +48,7 @@ private data class UserActivity(
     val name: String,
     val email: String,
     val whitelisted: Boolean,
+    val isAdmin: Boolean,
     val role: String,
     val lastLogin: Long,
     val last30Days: List<String>,
@@ -131,6 +133,7 @@ fun AdminScreen(onBack: () -> Unit) {
                         name = doc.getString("name").orEmpty(),
                         email = doc.getString("email").orEmpty(),
                         whitelisted = doc.getBoolean("whitelisted") == true,
+                        isAdmin = doc.getBoolean("isAdmin") == true,
                         role = doc.getString("role").orEmpty(),
                         lastLogin = doc.getLong("lastLogin") ?: 0L,
                         last30Days = (doc.get("last30Days") as? List<*>)
@@ -304,21 +307,49 @@ fun AdminScreen(onBack: () -> Unit) {
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(users, key = { it.id }) { user ->
-                            UserActivityCard(user, dateFormat) { userId, isWhitelisted ->
-                                scope.launch {
-                                    try {
-                                        db.collection("users").document(userId)
-                                            .update("whitelisted", isWhitelisted)
-                                            .await()
-                                        users = users.map {
-                                            if (it.id == userId) it.copy(whitelisted = isWhitelisted) else it
+                            UserActivityCard(
+                                user = user,
+                                dateFormat = dateFormat,
+                                onToggleWhitelist = { userId, isWhitelisted ->
+                                    scope.launch {
+                                        try {
+                                            db.collection("users").document(userId)
+                                                .update("whitelisted", isWhitelisted)
+                                                .await()
+                                            users = users.map {
+                                                if (it.id == userId) it.copy(whitelisted = isWhitelisted) else it
+                                            }
+                                            statusText = "User ${user.email} ${if (isWhitelisted) "whitelisted" else "restricted"}"
+                                        } catch (e: Exception) {
+                                            statusText = "Whitelist update failed: ${e.message}"
                                         }
-                                        statusText = "User ${user.email} ${if (isWhitelisted) "whitelisted" else "restricted"}"
-                                    } catch (e: Exception) {
-                                        statusText = "Whitelist update failed: ${e.message}"
+                                    }
+                                },
+                                onToggleAdmin = { userId, isAdminValue ->
+                                    // Prevent self-demotion if you're the main admin
+                                    if (user.email.equals(ADMIN_EMAIL, ignoreCase = true) && !isAdminValue) {
+                                        statusText = "Cannot demote primary administrator."
+                                    } else {
+                                        scope.launch {
+                                            try {
+                                                val newRole = if (isAdminValue) "administrator" else "staff"
+                                                db.collection("users").document(userId)
+                                                    .update(mapOf(
+                                                        "isAdmin" to isAdminValue,
+                                                        "role" to newRole
+                                                    ))
+                                                    .await()
+                                                users = users.map {
+                                                    if (it.id == userId) it.copy(isAdmin = isAdminValue, role = newRole) else it
+                                                }
+                                                statusText = "User ${user.email} role set to $newRole"
+                                            } catch (e: Exception) {
+                                                statusText = "Admin update failed: ${e.message}"
+                                            }
+                                        }
                                     }
                                 }
-                            }
+                            )
                         }
                     }
                 }
@@ -520,7 +551,8 @@ fun AdminScreen(onBack: () -> Unit) {
 private fun UserActivityCard(
     user: UserActivity,
     dateFormat: SimpleDateFormat,
-    onToggleWhitelist: (String, Boolean) -> Unit
+    onToggleWhitelist: (String, Boolean) -> Unit,
+    onToggleAdmin: (String, Boolean) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -542,11 +574,27 @@ private fun UserActivityCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        user.name.ifBlank { "Unnamed user" },
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            user.name.ifBlank { "Unnamed user" },
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        if (user.isAdmin) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.primary,
+                                shape = MaterialTheme.shapes.extraSmall,
+                                modifier = Modifier.padding(start = 8.dp)
+                            ) {
+                                Text(
+                                    "ADMIN",
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                            }
+                        }
+                    }
                     Text(user.email, style = MaterialTheme.typography.bodySmall)
                 }
 
@@ -560,7 +608,21 @@ private fun UserActivityCard(
                         Switch(
                             checked = user.whitelisted,
                             onCheckedChange = { onToggleWhitelist(user.id, it) },
-                            modifier = Modifier.padding(start = 8.dp)
+                            modifier = Modifier.scale(0.8f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "Admin",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                        Switch(
+                            checked = user.isAdmin,
+                            onCheckedChange = { onToggleAdmin(user.id, it) },
+                            modifier = Modifier.scale(0.8f)
                         )
                     }
 

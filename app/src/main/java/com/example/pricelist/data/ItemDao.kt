@@ -34,5 +34,22 @@ interface ItemDao {
     @Query("UPDATE items SET PriceA = :priceA, PriceB = :priceB, PriceC = :priceC, PurchasePrice = :purchasePrice WHERE MasterCode = :masterCode")
     suspend fun updateSensitiveFields(masterCode: String, priceA: Double, priceB: Double, priceC: Double, purchasePrice: Double)
 
+    @Query("UPDATE items SET PriceA = 0, PriceB = 0, PriceC = 0, PurchasePrice = 0")
+    suspend fun clearSensitiveFields()
+
+    @Transaction
+    suspend fun updateSensitiveFieldsBatch(updates: List<SensitivePriceUpdate>) {
+        updates.forEach { 
+            updateSensitiveFields(it.masterCode, it.priceA, it.priceB, it.priceC, it.purchasePrice)
+        }
+    }
 }
+
+data class SensitivePriceUpdate(
+    val masterCode: String,
+    val priceA: Double,
+    val priceB: Double,
+    val priceC: Double,
+    val purchasePrice: Double
+)
 
