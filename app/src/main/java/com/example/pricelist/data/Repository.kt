@@ -8,6 +8,10 @@ import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.tasks.await
 import java.io.File
 
@@ -34,7 +38,9 @@ class Repository(
             .get()
             .await()
 
-        val sensitiveDataMap = if (isAdmin && !snapshot.isEmpty) {
+        // Phase 1: Only fetch sensitive data if the delta is small.
+        // For large updates (like first sync), Phase 2 will handle it in the background.
+        val sensitiveDataMap = if (isAdmin && !snapshot.isEmpty && snapshot.size() <= 50) {
             val masterCodes = snapshot.documents.map { it.id }
             fetchSensitiveData(masterCodes)
         } else {
@@ -86,58 +92,100 @@ class Repository(
         }
         // 4️⃣ Add new items that are in Firestore but not in Room
         val itemsToAdd = allActiveMasterCodes.subtract(localMasterCodes)
-        val newItems = mutableListOf<ItemEntity>()
         if (itemsToAdd.isNotEmpty()) {
-            Log.d("Repository", "Fetching ${itemsToAdd.size} new items from Firestore")
-            val chunks = itemsToAdd.chunked(10) // Firestore `in` clause supports max 10
-            for (chunk in chunks) {
-                val snapshot = firestore.collection("items")
-                    .whereIn(FieldPath.documentId(), chunk.toList())
-                    .get()
-                    .await()
+            Log.d("Repository", "Fetching ${itemsToAdd.size} new items from Firestore in parallel")
+            val chunks = itemsToAdd.chunked(30) // Optimized chunk size
+            val semaphore = kotlinx.coroutines.sync.Semaphore(5)
+            
+            val newItems = coroutineScope {
+                chunks.map { chunk ->
+                    async {
+                        semaphore.withPermit {
+                            try {
+                                val snapshot = firestore.collection("items")
+                                    .whereIn(FieldPath.documentId(), chunk.toList())
+                                    .get()
+                                    .await()
 
-                val sensitiveDataMap = if (isAdmin && !snapshot.isEmpty) {
-                    fetchSensitiveData(chunk)
-                } else {
-                    emptyMap()
-                }
-
-                val parsed = snapshot.documents.mapNotNull { doc ->
-                    parseFirestoreItem(doc, sensitiveDataMap[doc.id])
-                }
-                newItems += parsed
+                                snapshot.documents.mapNotNull { doc ->
+                                    // For new items, we skip sensitive data here to speed up Phase 1.
+                                    // Phase 2 (enrichment) will fetch them in the background.
+                                    parseFirestoreItem(doc, null)
+                                }
+                            } catch (e: Exception) {
+                                if (e is kotlinx.coroutines.CancellationException) throw e
+                                Log.e("Repository", "Failed to fetch item metadata chunk", e)
+                                emptyList<ItemEntity>()
+                            }
+                        }
+                    }
+                }.awaitAll().flatten()
             }
             dao.insertAll(newItems)
-        }
-
-        // 5️⃣ Update sensitive fields for existing items if admin
-        if (isAdmin && localItems.isNotEmpty()) {
-            updateAllSensitiveFieldsForAdmin(localItems)
+            Log.d("Repository", "Inserted ${newItems.size} new items")
         }
     }
 
-    private suspend fun updateAllSensitiveFieldsForAdmin(localItems: List<ItemEntity>) {
-        val masterCodes = localItems.map { it.MasterCode }
-        val chunks = masterCodes.chunked(10)
-        for (chunk in chunks) {
-            val sensitiveDataMap = fetchSensitiveData(chunk)
-            for (masterCode in chunk) {
-                val sensitiveDoc = sensitiveDataMap[masterCode]
-                if (sensitiveDoc != null && sensitiveDoc.exists()) {
-                    val data = sensitiveDoc.data
-                    val pA = (data?.get("PriceA") as? Number)?.toDouble() ?: 0.0
-                    val pB = (data?.get("PriceB") as? Number)?.toDouble() ?: 0.0
-                    val pC = (data?.get("PriceC") as? Number)?.toDouble() ?: 0.0
-                    val pP = (data?.get("PurchasePrice") as? Number)?.toDouble() ?: 0.0
-                    dao.updateSensitiveFields(masterCode, pA, pB, pC, pP)
+    /**
+     * Background enrichment for sensitive data (Price A, B, C, Purchase Price).
+     * This is separate from the main sync to avoid timeouts for large datasets.
+     */
+    suspend fun enrichSensitiveDataInBackground(isAdmin: Boolean) = coroutineScope {
+        if (!isAdmin) {
+            Log.d("Repository", "Non-admin user, clearing local sensitive data.")
+            dao.clearSensitiveFields()
+            return@coroutineScope
+        }
+
+        val localItems = dao.getAllItems()
+        // Optimization: only update items that don't have sensitive data yet
+        val itemsToUpdate = localItems.filter { it.PriceA == 0.0 && it.PurchasePrice == 0.0 }
+        if (itemsToUpdate.isEmpty()) {
+            Log.d("Repository", "No sensitive fields need updating.")
+            return@coroutineScope
+        }
+
+        Log.d("Repository", "Enriching sensitive fields for ${itemsToUpdate.size} items in background")
+        val chunksToFetch = itemsToUpdate.map { it.MasterCode }.chunked(30)
+        
+        // Throttled concurrency: limit to 5 simultaneous requests to avoid socket exhaustion/timeouts
+        val semaphore = kotlinx.coroutines.sync.Semaphore(5)
+        
+        chunksToFetch.map { chunk ->
+            async {
+                semaphore.withPermit {
+                    try {
+                        val sensitiveDataMap = fetchSensitiveData(chunk)
+                        val updates = mutableListOf<SensitivePriceUpdate>()
+                        for (masterCode in chunk) {
+                            val sensitiveDoc = sensitiveDataMap[masterCode]
+                            if (sensitiveDoc != null && sensitiveDoc.exists()) {
+                                val data = sensitiveDoc.data
+                                val pA = (data?.get("PriceA") as? Number)?.toDouble() ?: 0.0
+                                val pB = (data?.get("PriceB") as? Number)?.toDouble() ?: 0.0
+                                val pC = (data?.get("PriceC") as? Number)?.toDouble() ?: 0.0
+                                val pP = (data?.get("PurchasePrice") as? Number)?.toDouble() ?: 0.0
+                                updates.add(SensitivePriceUpdate(masterCode, pA, pB, pC, pP))
+                            }
+                        }
+                        if (updates.isNotEmpty()) {
+                            dao.updateSensitiveFieldsBatch(updates)
+                        }
+                        Unit
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        Log.e("Repository", "Background enrichment failed for chunk", e)
+                        Unit
+                    }
                 }
             }
-        }
+        }.awaitAll()
+        Log.d("Repository", "Background enrichment complete")
     }
 
     private suspend fun fetchSensitiveData(masterCodes: List<String>): Map<String, DocumentSnapshot> {
         val result = mutableMapOf<String, DocumentSnapshot>()
-        val chunks = masterCodes.chunked(10)
+        val chunks = masterCodes.chunked(30)
         for (chunk in chunks) {
             try {
                 val sensitiveSnapshot = firestore.collection("sensitive_item_data")
@@ -148,7 +196,8 @@ class Repository(
                     result[doc.id] = doc
                 }
             } catch (e: Exception) {
-                Log.e("Repository", "Error fetching sensitive data for chunk: $chunk", e)
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e("Repository", "Error fetching sensitive data for chunk of size ${chunk.size}", e)
             }
         }
         return result
