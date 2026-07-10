@@ -2,23 +2,30 @@ package com.example.pricelist.ui
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.os.Environment
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
@@ -35,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -91,8 +99,33 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
     var showPurchasePrice by remember { mutableStateOf(AppPrefs.isShowPurchasePriceEnabled(context)) }
     var showStock by remember { mutableStateOf(AppPrefs.isShowStockEnabled(context)) }
 
+    val groups = remember(items) {
+        items.map { it.Group }
+            .distinct()
+            .filter { it.isNotBlank() && it != "General" }
+            .sorted()
+    }
+    var selectedGroup by remember { mutableStateOf<String?>(null) }
+
+    val filteredItems = remember(items, selectedGroup) {
+        if (selectedGroup == null) items else items.filter { it.Group == selectedGroup }
+    }
+
     // Stock checker reference
     val stockChecker = remember { StockChangeChecker(context) }
+
+    LaunchedEffect(Unit) {
+        // Fix for old users: If upgrading to the Groups version, reset sync time
+        // to force a one-time full metadata fetch so Groups are populated.
+        if (!AppPrefs.isSchemaMigrationDone(context)) {
+            AppPrefs.setLastSyncTime(context, 0L)
+            AppPrefs.setSchemaMigrationDone(context, true)
+            // If they already have data, we want to prompt them to sync or auto-sync
+            if (AppPrefs.isFirstSyncDone(context)) {
+                showUpdatePrompt = true
+            }
+        }
+    }
 
     // 🔔 Get MasterCodes with stock alerts
     val alertMasterCodes = remember {
@@ -261,6 +294,81 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                         label = { Text("Search items…") },
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    if (groups.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FilterChip(
+                                selected = selectedGroup == null,
+                                onClick = { selectedGroup = null },
+                                label = { Text("All Items") },
+                                leadingIcon = if (selectedGroup == null) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
+                                } else null,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            )
+
+                            groups.forEach { groupName ->
+                                FilterChip(
+                                    selected = selectedGroup == groupName,
+                                    onClick = { selectedGroup = groupName },
+                                    label = { Text(groupName) },
+                                    leadingIcon = if (selectedGroup == groupName) {
+                                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
+                                    } else null,
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    if (selectedGroup != null) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.FilterList,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "Showing category: $selectedGroup",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    "${filteredItems.size} items",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+                    }
+
                     syncErrorMessage?.let { msg ->
                         Spacer(Modifier.height(6.dp))
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -357,7 +465,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                     }
                 }
 
-                items(items, key = { it.MasterCode }) { item ->
+                items(filteredItems, key = { it.MasterCode }) { item ->
                     val highlight = highlightMasterCode != null && item.MasterCode == highlightMasterCode
                     // Remove animation parameter and use redraw trigger to force recomposition
                     ItemCard(
@@ -372,7 +480,7 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                     )
                 }
 
-                if (items.isEmpty() && query.isNotBlank()) {
+                if (filteredItems.isEmpty() && (query.isNotBlank() || selectedGroup != null)) {
                     item {
                         Text(
                             text = "No items found.",
@@ -590,6 +698,7 @@ private fun SettingsDialog(
 // -----------------------------
 // 🔻 Reusable Composables
 // -----------------------------
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ItemCard(
     item: ItemEntity,
@@ -660,7 +769,15 @@ fun ItemCard(
     LaunchedEffect(redrawTrigger) { /* no-op: used to trigger recomposition */ }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { /* Handled by internal components or can be used for secondary action */ },
+                onLongClick = {
+                    AnalyticsManager.logButtonClick("item_share_longpress")
+                    shareItem(context, item)
+                }
+            ),
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(4.dp),
         colors = CardDefaults.cardColors(containerColor = animatedColor)
@@ -1075,6 +1192,46 @@ fun ImageZoomDialog(
             }
         }
     )
+}
+
+private fun shareItem(context: Context, item: ItemEntity) {
+    val taxPercent = item.TaxPercent
+    val discountPercent = item.DiscPercent
+    val basePrice = item.PRICE3
+
+    val discountAmount = basePrice * (discountPercent / 100.0)
+    val priceAfterDiscount = basePrice - discountAmount
+    val taxAmount = priceAfterDiscount * (taxPercent / 100.0)
+    val totalPrice = priceAfterDiscount + taxAmount
+
+    val shareText = """
+        *${item.Name}*
+        Unit: ${item.Unit}
+        Price: ₹${formatAmount(totalPrice)} (Incl. GST)
+    """.trimIndent()
+
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, shareText)
+    }
+
+    val imageFile = File(context.filesDir, "images/${item.MasterCode}${item.imageExt}")
+    if (item.imageYes && imageFile.exists()) {
+        try {
+            val imageUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                imageFile
+            )
+            intent.type = "image/*"
+            intent.putExtra(Intent.EXTRA_STREAM, imageUri)
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (e: Exception) {
+            Log.e("ShareItem", "Failed to get URI for file", e)
+        }
+    }
+
+    context.startActivity(Intent.createChooser(intent, "Share Item via"))
 }
 
 // 🔻 Firebase brochure listing and download

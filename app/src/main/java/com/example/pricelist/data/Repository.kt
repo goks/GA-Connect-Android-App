@@ -229,6 +229,7 @@ class Repository(
                 // Read TaxPercent when parsing individual items
                 TaxPercent = (data["TaxPercent"] as? Number)?.toDouble() ?: 0.0,
                 Stock = (data["Stock"] as? Number)?.toDouble() ?: 0.0,
+                Group = data["Group"] as? String ?: "General",
                 lastFBUpdate = lastUpdated
             )
         } catch (e: Exception) {
