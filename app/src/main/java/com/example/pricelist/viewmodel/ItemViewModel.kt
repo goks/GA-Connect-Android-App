@@ -13,28 +13,25 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.core.content.edit
 import com.example.pricelist.util.AppPrefs
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ItemViewModel(private val repo: Repository) : ViewModel() {
 
     /* ---------- state flows ---------- */
-    private val _itemsFlow = MutableStateFlow<List<ItemEntity>>(emptyList())
-    val   itemsFlow : StateFlow<List<ItemEntity>> = _itemsFlow
-
     private val _query = MutableStateFlow("")
     val   query    : StateFlow<String>           = _query.asStateFlow()
 
-    /* ---------- fuzzy search engine ---------- */
+    private val _refreshTrigger = MutableStateFlow(0)
 
-
-    /* ---------------------------------------------------- */
-    /* 1️⃣  initial load (Room cache)                        */
-    /* ---------------------------------------------------- */
-    init {
-        viewModelScope.launch {
-            val local = repo.getAll()
-            _itemsFlow.value = local
+    // Derived flow that combines search query and data updates
+    val itemsFlow: StateFlow<List<ItemEntity>> = combine(_query, _refreshTrigger) { q, _ -> q }
+        .flatMapLatest { q ->
+            flow {
+                emit(if (q.isBlank()) repo.getAll() else repo.search(q))
+            }
         }
-    }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /* ---------------------------------------------------- */
     /* 🔄  Manual sync (Firestore ➜ Room)                    */
@@ -50,10 +47,10 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
 
             try {
                 // Phase 1: Metadata and Changed Items Sync
-                // We keep a reasonable timeout here, but Phase 1 is much lighter now.
                 withTimeout(120_000L) {
                     repo.sync(context, isAdmin)
-                    _itemsFlow.value = repo.getAll()
+                    // Trigger a refresh of the visible items while preserving the search query
+                    _refreshTrigger.value++
                     ok = true
 
                     // ✅ Save sync flag
@@ -61,13 +58,12 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
                 }
                 
                 // Phase 2: Background Enrichment for Admins
-                // This happens AFTER Phase 1 is successful and reported to the user.
                 if (ok) {
                     launch {
                         try {
                             repo.enrichSensitiveDataInBackground(isAdmin)
-                            // Update items flow one last time to reflect enriched data
-                            _itemsFlow.value = repo.getAll()
+                            // Trigger another refresh to show enriched data (prices etc)
+                            _refreshTrigger.value++
                         } catch (e: Exception) {
                             Log.e("SyncNow", "Background enrichment failed", e)
                         }
@@ -96,10 +92,7 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
     /* 🔍  Search handler                                    */
     /* ---------------------------------------------------- */
     fun onSearchChanged(text: String) {
-        viewModelScope.launch {
-            _query.value = text
-            _itemsFlow.value = repo.search(text)
-        }
+        _query.value = text
     }
 
     fun checkIfUpdateAvailable(context: Context, onResult: (Boolean) -> Unit) {
@@ -118,8 +111,4 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
             }
         }
     }
-
-
-
-
 }
