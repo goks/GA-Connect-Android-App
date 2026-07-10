@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.core.content.edit
+import com.example.pricelist.util.AppPrefs
 
 class ItemViewModel(private val repo: Repository) : ViewModel() {
 
@@ -44,7 +45,6 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
         onComplete: (success: Boolean, errorMessage: String?) -> Unit
     ) {
         viewModelScope.launch {
-            val prefs = context.getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
             var ok = false
             var errorMsg: String? = null
 
@@ -56,11 +56,8 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
                     _itemsFlow.value = repo.getAll()
                     ok = true
 
-                    // ✅ Save sync flag and timestamp
-                    prefs.edit {
-                        putBoolean("hasSyncedOnce", true)
-                            .putLong("lastSyncedTime", System.currentTimeMillis())
-                    }
+                    // ✅ Save sync flag
+                    AppPrefs.setFirstSyncDone(context, true)
                 }
                 
                 // Phase 2: Background Enrichment for Admins
@@ -108,9 +105,7 @@ class ItemViewModel(private val repo: Repository) : ViewModel() {
     fun checkIfUpdateAvailable(context: Context, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
             try {
-                val localLastSync = context
-                    .getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
-                    .getLong("lastSyncedTime", 0L)
+                val localLastSync = AppPrefs.getLastSyncTime(context)
 
                 val remoteLastUpdate = repo.getLastServerUpdateTimestamp()
 

@@ -7,5 +7,6 @@ import androidx.room.Fts4
 @Entity(tableName = "itemsFts")
 data class ItemFts(
     val Name: String,
-    val Code:String
+    val Code: String,
+    val Group: String
 )

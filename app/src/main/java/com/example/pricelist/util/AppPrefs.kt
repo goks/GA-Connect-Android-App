@@ -11,6 +11,7 @@ object AppPrefs {
     private const val KEY_SHOW_MULTIPLE_PRICES = "show_multiple_prices"
     private const val KEY_SHOW_PURCHASE_PRICE = "show_purchase_price"
     private const val KEY_SHOW_STOCK = "show_stock"
+    private const val KEY_SCHEMA_MIGRATION_DONE = "schema_migration_v3_done"
 
     fun isFirstSyncDone(context: Context): Boolean {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -81,6 +82,18 @@ object AppPrefs {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit {
                 putBoolean(KEY_SHOW_STOCK, enabled)
+            }
+    }
+
+    fun isSchemaMigrationDone(context: Context): Boolean {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_SCHEMA_MIGRATION_DONE, false)
+    }
+
+    fun setSchemaMigrationDone(context: Context, done: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit {
+                putBoolean(KEY_SCHEMA_MIGRATION_DONE, done)
             }
     }
 }

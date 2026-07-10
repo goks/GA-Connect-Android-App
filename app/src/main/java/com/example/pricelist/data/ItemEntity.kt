@@ -22,6 +22,6 @@ data class ItemEntity(
     val imageW: Int = 0,
     val imageYes: Boolean = false,
     val TaxPercent: Double = 0.0,
-    val lastFBUpdate: Long = 0L
-
+    val lastFBUpdate: Long = 0L,
+    val Group: String = "General"
 )
