@@ -2,13 +2,16 @@ package com.example.pricelist.ui
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.os.Environment
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -590,6 +594,7 @@ private fun SettingsDialog(
 // -----------------------------
 // 🔻 Reusable Composables
 // -----------------------------
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ItemCard(
     item: ItemEntity,
@@ -660,7 +665,15 @@ fun ItemCard(
     LaunchedEffect(redrawTrigger) { /* no-op: used to trigger recomposition */ }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { /* Handled by internal components or can be used for secondary action */ },
+                onLongClick = {
+                    AnalyticsManager.logButtonClick("item_share_longpress")
+                    shareItem(context, item)
+                }
+            ),
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(4.dp),
         colors = CardDefaults.cardColors(containerColor = animatedColor)
@@ -1075,6 +1088,46 @@ fun ImageZoomDialog(
             }
         }
     )
+}
+
+private fun shareItem(context: Context, item: ItemEntity) {
+    val taxPercent = item.TaxPercent
+    val discountPercent = item.DiscPercent
+    val basePrice = item.PRICE3
+
+    val discountAmount = basePrice * (discountPercent / 100.0)
+    val priceAfterDiscount = basePrice - discountAmount
+    val taxAmount = priceAfterDiscount * (taxPercent / 100.0)
+    val totalPrice = priceAfterDiscount + taxAmount
+
+    val shareText = """
+        *${item.Name}*
+        Unit: ${item.Unit}
+        Price: ₹${formatAmount(totalPrice)} (Incl. GST)
+    """.trimIndent()
+
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, shareText)
+    }
+
+    val imageFile = File(context.filesDir, "images/${item.MasterCode}${item.imageExt}")
+    if (item.imageYes && imageFile.exists()) {
+        try {
+            val imageUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                imageFile
+            )
+            intent.type = "image/*"
+            intent.putExtra(Intent.EXTRA_STREAM, imageUri)
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (e: Exception) {
+            Log.e("ShareItem", "Failed to get URI for file", e)
+        }
+    }
+
+    context.startActivity(Intent.createChooser(intent, "Share Item via"))
 }
 
 // 🔻 Firebase brochure listing and download

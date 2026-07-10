@@ -5,6 +5,7 @@ build/
 gradle/gradle-daemon-jvm.properties
 
 # Android Studio / IntelliJ local state
+.idea/
 .idea/workspace.xml
 .idea/shelf/
 .idea/caches/
