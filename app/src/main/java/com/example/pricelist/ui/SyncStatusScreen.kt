@@ -1,7 +1,12 @@
 package com.example.pricelist.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,7 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.OfflineBolt
@@ -21,8 +26,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -195,6 +201,18 @@ private fun StatusCard(
                 )
             } else {
                 val derivedState = run.getDerivedState(nowMillis)
+                val isRunning = derivedState == DerivedSyncState.RUNNING
+
+                val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                val pulseAlpha by infiniteTransition.animateFloat(
+                    initialValue = 0.5f,
+                    targetValue = 1.0f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(800),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "alpha"
+                )
 
                 // Top Header Row: Stage/Label + Derived Badge
                 Row(
@@ -221,10 +239,11 @@ private fun StatusCard(
                         )
                     }
 
-                    // Derived State Badge
+                    // Derived State Badge with Pulsing on Running
                     Surface(
                         color = parseHexColor(derivedState.colorHex),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = if (isRunning) Modifier.graphicsLayer(alpha = pulseAlpha) else Modifier
                     ) {
                         Text(
                             text = derivedState.label,
@@ -308,19 +327,36 @@ private fun StatusCard(
                     }
                 }
 
-                // Error Box
+                // Error Box with Copy Button
                 if (!run.error.isNullOrBlank()) {
+                    val context = LocalContext.current
                     Surface(
                         color = MaterialTheme.colorScheme.errorContainer,
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = run.error,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.padding(10.dp)
-                        )
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = run.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("Sync Error Log", run.error)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Error log copied to clipboard", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy Error Log", modifier = Modifier.size(16.dp))
+                            }
+                        }
                     }
                 }
 

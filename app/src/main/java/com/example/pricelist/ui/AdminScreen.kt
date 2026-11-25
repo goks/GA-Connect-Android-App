@@ -27,7 +27,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.pricelist.data.Brochure
-import com.example.pricelist.ui.SyncStatusScreen
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
@@ -918,14 +917,31 @@ fun AdminScreen(onBack: () -> Unit, initialTab: Int = 0) {
 
             when (selectedTab) {
                 0 -> {
+                    var pendingOnly by remember { mutableStateOf(false) }
+                    val pendingCount = remember(users) { users.count { !it.whitelisted } }
+                    val filteredUsers = remember(users, pendingOnly) {
+                        if (pendingOnly) users.filter { !it.whitelisted } else users
+                    }
+
                     Column(Modifier.fillMaxSize()) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("User activity", style = MaterialTheme.typography.titleMedium)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("User activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                if (pendingCount > 0) {
+                                    FilterChip(
+                                        selected = pendingOnly,
+                                        onClick = { pendingOnly = !pendingOnly },
+                                        label = { Text("Pending ($pendingCount)", fontSize = 11.sp) },
+                                        modifier = Modifier.height(28.dp)
+                                    )
+                                }
+                            }
                             TextButton(onClick = { loadUsers() }) {
                                 Text("Refresh")
                             }
@@ -936,10 +952,10 @@ fun AdminScreen(onBack: () -> Unit, initialTab: Int = 0) {
                         }
 
                         LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(users, key = { it.id }) { user ->
+                            items(filteredUsers, key = { it.id }) { user ->
                                 UserActivityCard(
                                     user = user,
                                     dateFormat = dateFormat,
@@ -1224,6 +1240,7 @@ private fun AttendanceTabContent(
     selectedMonthKey: String,
     onMonthChange: (String) -> Unit
 ) {
+    val context = LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1249,6 +1266,19 @@ private fun AttendanceTabContent(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                IconButton(onClick = {
+                    val targetKey = normalizeDateKey(selectedDailyDateKey)
+                    val pCount = attendanceList.count { it.dateKey == targetKey }
+                    val summaryText = "Daily Attendance Summary (${formatDateKey(selectedDailyDateKey)}):\nPresent: $pCount / ${attendanceStaffMaster.size}\nGenerated via Price List Staff App"
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "Attendance Summary")
+                        putExtra(Intent.EXTRA_TEXT, summaryText)
+                    }
+                    context.startActivity(Intent.createChooser(shareIntent, "Share Summary"))
+                }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Share, contentDescription = "Share Summary", modifier = Modifier.size(18.dp))
+                }
                 FilterChip(
                     selected = selectedViewMode == 0,
                     onClick = { onViewModeChange(0) },
@@ -1359,9 +1389,11 @@ private fun DailyAttendanceView(
 
     // Sort option: 0 = Name (A-Z), 1 = Punched In Time, 2 = Status (Present first)
     var sortOption by remember { mutableIntStateOf(0) }
+    var searchQuery by remember { mutableStateOf("") }
+    var statusFilter by remember { mutableIntStateOf(0) } // 0 = All, 1 = Present, 2 = Absent
 
     // Combine Master Employees + Today's Logs into a single Unified Attendance List
-    val unifiedList = remember(attendanceStaffMaster, presentRecords, sortOption) {
+    val unifiedList = remember(attendanceStaffMaster, presentRecords, sortOption, searchQuery, statusFilter) {
         val mappedList = mutableListOf<UnifiedDailyAttendance>()
         val processedRecordIds = mutableSetOf<String>()
 
@@ -1416,23 +1448,36 @@ private fun DailyAttendanceView(
             }
         }
 
-        // 3. Apply selected sort option
+        // 3. Filter by search query & status
+        val filtered = mappedList.filter { item ->
+            val matchesQuery = searchQuery.isBlank() ||
+                item.staffName.contains(searchQuery, ignoreCase = true) ||
+                item.staffId.contains(searchQuery, ignoreCase = true)
+            val matchesStatus = when (statusFilter) {
+                1 -> item.isPresent
+                2 -> !item.isPresent
+                else -> true
+            }
+            matchesQuery && matchesStatus
+        }
+
+        // 4. Apply selected sort option
         when (sortOption) {
-            0 -> mappedList.sortedBy { it.staffName.lowercase(Locale.getDefault()) }
-            1 -> mappedList.sortedWith(
+            0 -> filtered.sortedBy { it.staffName.lowercase(Locale.getDefault()) }
+            1 -> filtered.sortedWith(
                 compareByDescending<UnifiedDailyAttendance> { it.isPresent }
                     .thenBy { if (it.punchInTime > 0) it.punchInTime else Long.MAX_VALUE }
                     .thenBy { it.staffName.lowercase(Locale.getDefault()) }
             )
-            2 -> mappedList.sortedWith(
+            2 -> filtered.sortedWith(
                 compareByDescending<UnifiedDailyAttendance> { it.isPresent }
                     .thenBy { it.staffName.lowercase(Locale.getDefault()) }
             )
-            else -> mappedList
+            else -> filtered
         }
     }
 
-    val presentCount = remember(unifiedList) { unifiedList.count { it.isPresent } }
+    val presentCount = remember(presentRecords) { presentRecords.size }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         // Ultra-Compact Date Navigation + Sort Controls Card
@@ -1491,6 +1536,28 @@ private fun DailyAttendanceView(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    Text("Filter:", style = MaterialTheme.typography.labelSmall, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    FilterChip(
+                        selected = statusFilter == 0,
+                        onClick = { statusFilter = 0 },
+                        label = { Text("All", fontSize = 10.sp) },
+                        modifier = Modifier.height(24.dp)
+                    )
+                    FilterChip(
+                        selected = statusFilter == 1,
+                        onClick = { statusFilter = 1 },
+                        label = { Text("Present", fontSize = 10.sp) },
+                        modifier = Modifier.height(24.dp)
+                    )
+                    FilterChip(
+                        selected = statusFilter == 2,
+                        onClick = { statusFilter = 2 },
+                        label = { Text("Absent", fontSize = 10.sp) },
+                        modifier = Modifier.height(24.dp)
+                    )
+
+                    Spacer(Modifier.weight(1f))
+
                     Text("Sort:", style = MaterialTheme.typography.labelSmall, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     FilterChip(
                         selected = sortOption == 0,
@@ -1502,12 +1569,6 @@ private fun DailyAttendanceView(
                         selected = sortOption == 1,
                         onClick = { sortOption = 1 },
                         label = { Text("Time In", fontSize = 10.sp) },
-                        modifier = Modifier.height(24.dp)
-                    )
-                    FilterChip(
-                        selected = sortOption == 2,
-                        onClick = { sortOption = 2 },
-                        label = { Text("Status", fontSize = 10.sp) },
                         modifier = Modifier.height(24.dp)
                     )
                 }

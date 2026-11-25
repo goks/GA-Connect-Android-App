@@ -24,10 +24,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -301,6 +304,13 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                             AnalyticsManager.logSearch(it)
                         },
                         label = { Text("Search items…") },
+                        trailingIcon = if (query.isNotEmpty()) {
+                            @Composable {
+                                IconButton(onClick = { viewModel.onSearchChanged("") }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                                }
+                            }
+                        } else null,
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -491,11 +501,34 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
 
                 if (filteredItems.isEmpty() && (query.isNotBlank() || selectedGroup != null)) {
                     item {
-                        Text(
-                            text = "No items found.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(top = 24.dp)
-                        )
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "No items found matching filter.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Button(
+                                    onClick = {
+                                        viewModel.onSearchChanged("")
+                                        selectedGroup = null
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Reset Search & Filters")
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -970,11 +1003,27 @@ fun ItemCard(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    "Total Payable",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        "Total Payable",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    IconButton(
+                                        onClick = { showUnitPriceDialog = true },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Calculate,
+                                            contentDescription = "Calculate Unit Price",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
                                 Text(
                                     text = "₹$totalPriceFormatted",
                                     style = MaterialTheme.typography.titleMedium,
@@ -984,7 +1033,7 @@ fun ItemCard(
                                 )
                             }
                             Text(
-                                "Tap price to calculate unit/bulk price",
+                                "Tap 🧮 or price to calculate unit/bulk price",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.align(Alignment.End)
