@@ -24,10 +24,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -254,6 +258,14 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                                     navController.navigate(ROUTE_ADMIN)
                                 }
                             )
+                            DropdownMenuItem(
+                                text = { Text("Sync Status") },
+                                onClick = {
+                                    AnalyticsManager.logButtonClick("menu_sync_status")
+                                    showMenu = false
+                                    navController.navigate("$ROUTE_ADMIN?tab=3")
+                                }
+                            )
                         }
                         DropdownMenuItem(
                             text = { Text("Settings") },
@@ -292,6 +304,13 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
                             AnalyticsManager.logSearch(it)
                         },
                         label = { Text("Search items…") },
+                        trailingIcon = if (query.isNotEmpty()) {
+                            @Composable {
+                                IconButton(onClick = { viewModel.onSearchChanged("") }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                                }
+                            }
+                        } else null,
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -482,11 +501,34 @@ fun HomeScreen(navController: NavController, highlightMasterCode: String? = null
 
                 if (filteredItems.isEmpty() && (query.isNotBlank() || selectedGroup != null)) {
                     item {
-                        Text(
-                            text = "No items found.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(top = 24.dp)
-                        )
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "No items found matching filter.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Button(
+                                    onClick = {
+                                        viewModel.onSearchChanged("")
+                                        selectedGroup = null
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Reset Search & Filters")
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -778,21 +820,21 @@ fun ItemCard(
                     shareItem(context, item)
                 }
             ),
-        shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(4.dp),
+        shape = RoundedCornerShape(10.dp),
+        elevation = CardDefaults.cardElevation(3.dp),
         colors = CardDefaults.cardColors(containerColor = animatedColor)
     ) {
         Row(
             modifier = Modifier
-                .padding(12.dp)
+                .padding(10.dp)
                 .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
             if (item.imageYes) {
                 Box(
                     modifier = Modifier
-                        .padding(end = 12.dp)
-                        .size(72.dp)
+                        .padding(end = 10.dp)
+                        .size(64.dp)
                         .clickable(enabled = imagePath.value != null) {
                             onImageClick(item)
                         },
@@ -806,117 +848,126 @@ fun ItemCard(
                         )
                     } else {
                         if (isLoading) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Image,
                                 contentDescription = "Image loading",
                                 tint = Color.Gray,
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(28.dp)
                             )
                         }
                     }
                 }
             }
 
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = item.Name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (hasStockAlert) {
-                        Icon(
-                            imageVector = Icons.Default.Notifications,
-                            contentDescription = "Stock update",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .size(20.dp)
-                                .padding(start = 6.dp)
-                        )
-                    }
-                }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showTaxBreakdown = !showTaxBreakdown },
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        if (showMultiplePrices) {
-                            Column(modifier = Modifier.padding(vertical = 2.dp)) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Text(
-                                        text = "Tier A: ₹${formatAmount(item.PriceA)}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.Gray
-                                    )
-                                    Text(
-                                        text = "Tier B: ₹${formatAmount(item.PriceB)}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.Gray
-                                    )
-                                    Text(
-                                        text = "Tier C: ₹${formatAmount(item.PriceC)}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.Gray
-                                    )
-                                }
-                            }
-                        }
-                        if (showPurchasePrice) {
-                            Text(
-                                text = "Purchase: ₹${formatAmount(item.PurchasePrice)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.error,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                        if (showStock) {
-                            Text(
-                                text = "Stock: ${formatAmount(item.Stock)} ${item.Unit}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (item.Stock > 0) Color(0xFF2E7D32) else Color.Red,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                    // Full Item Name
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
                         Text(
-                            text = "Unit: ${item.Unit}${if (item.MRP > 0) " | MRP: ₹${formatAmount(item.MRP)}" else ""}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.Gray,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            text = item.Name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
+                        if (hasStockAlert) {
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = "Stock update",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .padding(start = 4.dp)
+                            )
+                        }
                     }
 
+                    // Prominent Price & GST Badge
                     Column(
                         horizontalAlignment = Alignment.End,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Text(
                             text = "₹$salePriceFormatted",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.ExtraBold,
+                            fontSize = 18.sp,
                             color = MaterialTheme.colorScheme.primary
                         )
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(6.dp),
                             color = if (showTaxBreakdown) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
-                            tonalElevation = 2.dp,
-                            shadowElevation = 1.dp
+                            tonalElevation = 1.dp,
+                            modifier = Modifier.clickable { showTaxBreakdown = !showTaxBreakdown }
                         ) {
                             Text(
                                 text = "GST ${formatAmount(taxPercent)}%",
                                 color = if (showTaxBreakdown) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
-                                style = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                fontSize = 10.sp,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
+                    }
+                }
+
+                if (showMultiplePrices) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Tier A: ₹${formatAmount(item.PriceA)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Text("Tier B: ₹${formatAmount(item.PriceB)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                        Text("Tier C: ₹${formatAmount(item.PriceC)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                    }
+                }
+
+                if (showPurchasePrice) {
+                    Text(
+                        text = "Purchase: ₹${formatAmount(item.PurchasePrice)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                if (showStock) {
+                    Text(
+                        text = "Stock: ${formatAmount(item.Stock)} ${item.Unit}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (item.Stock > 0) Color(0xFF2E7D32) else Color.Red,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Code: ${item.Code}${if (item.Unit.isNotBlank()) " | Unit: ${item.Unit}" else ""}${if (item.MRP > 0) " | MRP: ₹${formatAmount(item.MRP)}" else ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (item.DiscPercent != 0.0) {
+                        DiscountBadge(item.DiscPercent)
                     }
                 }
 
@@ -926,9 +977,9 @@ fun ItemCard(
                         color = MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 6.dp)
+                            .padding(top = 4.dp)
                     ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
+                        Column(modifier = Modifier.padding(8.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -942,7 +993,7 @@ fun ItemCard(
                             }
                             
                             HorizontalDivider(
-                                modifier = Modifier.padding(vertical = 8.dp),
+                                modifier = Modifier.padding(vertical = 6.dp),
                                 thickness = 0.5.dp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
                             )
@@ -952,11 +1003,27 @@ fun ItemCard(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    "Total Payable",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        "Total Payable",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    IconButton(
+                                        onClick = { showUnitPriceDialog = true },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Calculate,
+                                            contentDescription = "Calculate Unit Price",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
                                 Text(
                                     text = "₹$totalPriceFormatted",
                                     style = MaterialTheme.typography.titleMedium,
@@ -966,18 +1033,13 @@ fun ItemCard(
                                 )
                             }
                             Text(
-                                "Tap price to calculate unit/bulk price",
+                                "Tap 🧮 or price to calculate unit/bulk price",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.align(Alignment.End)
                             )
                         }
                     }
-                }
-                Text(text = "Code: ${item.Code}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-
-                if (item.DiscPercent != 0.0) {
-                    DiscountBadge(item.DiscPercent)
                 }
             }
         }

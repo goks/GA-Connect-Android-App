@@ -49,6 +49,18 @@ object AppPrefs {
             }
     }
 
+    fun getAttendanceLastSyncTime(context: Context): Long {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getLong("attendance_last_sync_time", 0L)
+    }
+
+    fun setAttendanceLastSyncTime(context: Context, time: Long) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit {
+                putLong("attendance_last_sync_time", time)
+            }
+    }
+
     fun isShowMultiplePricesEnabled(context: Context): Boolean {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getBoolean(KEY_SHOW_MULTIPLE_PRICES, false)

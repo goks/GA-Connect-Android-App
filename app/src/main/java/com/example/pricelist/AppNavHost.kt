@@ -93,8 +93,21 @@ fun AppNavHost(startStockAlerts: Boolean = false) {
                 }
             })
         }
+        composable(
+            "$ROUTE_ADMIN?tab={tab}",
+            arguments = listOf(
+                navArgument("tab") {
+                    nullable = true
+                    defaultValue = "0"
+                }
+            )
+        ) { backStackEntry ->
+            val tabStr = backStackEntry.arguments?.getString("tab")
+            val initialTab = tabStr?.toIntOrNull() ?: 0
+            AdminScreen(onBack = { navController.popBackStack() }, initialTab = initialTab)
+        }
         composable(ROUTE_ADMIN) {
-            AdminScreen(onBack = { navController.popBackStack() })
+            AdminScreen(onBack = { navController.popBackStack() }, initialTab = 0)
         }
         addBrochureRoute(navController) // ✅ Attach brochure screen
     }
